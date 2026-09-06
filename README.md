@@ -1,4 +1,4 @@
-# Smart Complaint Management System
+# Smart Complaint Management System (Software Engineering Final Project)
 
 ## Team Members
 
