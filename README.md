@@ -1,4 +1,15 @@
-# Smart Complaint Management System
+# Smart Complaint Management System (Software Engineering Final Project)
+
+## Team Members
+
+| Name | SRN |
+|------|-----|
+| Shasank S K | PESU2G24CS460 |
+| Shreya Shenoy | PES2UG24CS487 |
+| Sanjan M | PES2UG24CS442 |
+| Samartha M S | PES2UG24CS435 |
+
+---
 
 ## Project Overview
 
