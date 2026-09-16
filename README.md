@@ -95,6 +95,10 @@ Supported modern browsers include:
 
 The system currently defines **two primary actors/roles**:
 
+## User Roles
+
+The system currently defines **two primary actors/roles**:
+
 ### User
 
 Users can:
@@ -117,7 +121,7 @@ Authorized administrators can:
 - View and manage complaints.
 - Assign complaints to appropriate personnel or departments.
 - Update complaint statuses.
-- Manage escalated complaints.
+- Review and take appropriate action on escalated complaints.
 - Review smart complaint priority classification.
 - Review potentially duplicate complaints.
 - Search and filter complaints.
@@ -125,8 +129,21 @@ Authorized administrators can:
 - View reports and analytics.
 - Perform other administrative functions permitted by the system.
 
-> **Note:** The current project does not define separate roles such as Department Staff, Super Admin, Department Head, or Moderator.
+> **Note:** The current project defines only two system roles: **User** and **Administrator**. Roles such as Department Staff, Super Admin, Department Head, or Moderator are not part of the current project scope.
 
+---
+
+## Team Responsibilities
+
+The testing responsibilities for the project are organized as follows:
+
+| Role | Team Member | Responsibility |
+|------|-------------|----------------|
+| QA Lead | Shasank S K | Coordinates the test plan, tracks overall testing progress, and oversees security and RBAC test validation. |
+| Test Engineer — Auth & Access | Shasank S K | Designs and executes test cases for user registration/login, RBAC, complaint registration, and complaint categorization. |
+| Test Engineer — Lifecycle & Notifications | Shreya Shenoy | Designs and executes test cases for complaint tracking, notifications, escalation, and status updates. |
+| Test Engineer — Smart Features & Search | Sanjan M | Designs and executes test cases for priority classification, duplicate complaint detection, and search/filtering, including accuracy evaluation. |
+| Test Engineer — Admin & Data | Samartha M S | Designs and executes test cases for complaint assignment, admin dashboard, and reports/analytics. |
 ---
 
 ## Functional Requirements
