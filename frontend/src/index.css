@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-surface text-ink-800 font-sans antialiased;
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent-500 ring-offset-2 ring-offset-surface rounded;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight text-ink-900;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-card border border-ink-100 rounded-xl shadow-card;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-accent-600 text-white px-4 py-2 hover:bg-accent-700 active:bg-accent-800;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-ink-700 border border-ink-200 px-4 py-2 hover:bg-ink-50 hover:border-ink-300;
+  }
+
+  .btn-ghost {
+    @apply text-ink-600 px-3 py-2 hover:bg-ink-50 hover:text-ink-900;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-800 placeholder:text-ink-400 transition-colors duration-150 focus:border-accent-500 focus:ring-1 focus:ring-accent-500;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 cursor-pointer;
+  }
+
+  .nav-item-default {
+    @apply text-ink-300 hover:bg-ink-800/60 hover:text-white;
+  }
+
+  .nav-item-active {
+    @apply bg-accent-600 text-white;
+  }
+
+  .nav-item-admin {
+    @apply text-ink-400 hover:bg-ink-100 hover:text-ink-800;
+  }
+
+  .nav-item-admin-active {
+    @apply bg-accent-50 text-accent-700 font-semibold;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-ink-200 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-ink-300;
+}
