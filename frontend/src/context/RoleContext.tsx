@@ -17,9 +17,9 @@ const RoleContext = createContext<RoleContextValue | undefined>(undefined);
 
 const usersByRole: Record<UserRole, CurrentUser> = {
   user: {
-    name: 'Aisha Rahman',
+    name: 'Shreya Shenoy',
     role: 'user',
-    email: 'aisha.rahman@university.edu',
+    email: 'shreya.shenoy@university.edu',
   },
   admin: {
     name: 'Dr. Hassan Malik',
