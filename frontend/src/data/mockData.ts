@@ -1,0 +1,336 @@
+// Mock data for the Smart Complaint Management System.
+// This file is intentionally separate from the API service layer so that
+// swapping to the real Flask backend only requires replacing the service
+// implementation — the UI and types stay the same.
+
+import type { AppNotification, Complaint, ComplaintUpdate } from '@/types';
+
+// All dates are static ISO strings so counts and relationships stay consistent
+// across the overview, list, tracking, and admin pages.
+
+export const mockComplaints: Complaint[] = [
+  {
+    id: 'CMP-2024-001',
+    subject: 'Projector not working in Lecture Hall B-204',
+    description:
+      'The ceiling-mounted projector in Lecture Hall B-204 powers on but displays no image. Multiple cables were tested with the same result. This affects the Monday and Wednesday CS-301 classes.',
+    category: 'it_infrastructure',
+    status: 'in_progress',
+    priority: 'high',
+    submittedBy: 'Aisha Rahman',
+    assignedTo: 'IT Support Desk',
+    submittedAt: '2024-10-14T09:15:00Z',
+    updatedAt: '2024-10-18T14:30:00Z',
+    isEscalated: false,
+    possibleDuplicateId: null,
+  },
+  {
+    id: 'CMP-2024-002',
+    subject: 'Air conditioning leaking in Lab 3',
+    description:
+      'Water is dripping from the AC unit in Lab 3 onto the nearest workstation. The area has been roped off but the unit needs urgent servicing to prevent equipment damage.',
+    category: 'facilities',
+    status: 'submitted',
+    priority: 'critical',
+    submittedBy: 'Aisha Rahman',
+    assignedTo: null,
+    submittedAt: '2024-10-19T11:42:00Z',
+    updatedAt: '2024-10-19T11:42:00Z',
+    isEscalated: false,
+    possibleDuplicateId: null,
+  },
+  {
+    id: 'CMP-2024-003',
+    subject: 'Grade discrepancy in CS-301 midterm',
+    description:
+      'My recorded score for Question 4 of the CS-301 midterm appears to differ from the graded answer sheet. I have attached both documents for comparison.',
+    category: 'academic',
+    status: 'under_review',
+    priority: 'medium',
+    submittedBy: 'Aisha Rahman',
+    assignedTo: 'Registrar Office',
+    submittedAt: '2024-10-10T08:00:00Z',
+    updatedAt: '2024-10-16T10:20:00Z',
+    isEscalated: false,
+    possibleDuplicateId: null,
+  },
+  {
+    id: 'CMP-2024-004',
+    subject: 'Library Wi-Fi consistently drops in the evening',
+    description:
+      'The campus Wi-Fi in the central library becomes unusable between 6 PM and 9 PM on weekdays. Speed tests show sub-1 Mbps during these hours versus 40+ Mbps during the day.',
+    category: 'it_infrastructure',
+    status: 'resolved',
+    priority: 'medium',
+    submittedBy: 'Aisha Rahman',
+    assignedTo: 'IT Support Desk',
+    submittedAt: '2024-09-28T16:30:00Z',
+    updatedAt: '2024-10-05T09:00:00Z',
+    isEscalated: false,
+    possibleDuplicateId: 'CMP-2024-001',
+  },
+  {
+    id: 'CMP-2024-005',
+    subject: 'Broken handrail on staircase near Block C entrance',
+    description:
+      'The wooden handrail on the north staircase of Block C has detached from its mounting brackets at two points, creating a safety hazard for students using that entrance.',
+    category: 'facilities',
+    status: 'in_progress',
+    priority: 'high',
+    submittedBy: 'Omar Sheikh',
+    assignedTo: 'Facilities Maintenance',
+    submittedAt: '2024-10-15T13:10:00Z',
+    updatedAt: '2024-10-20T08:45:00Z',
+    isEscalated: true,
+    possibleDuplicateId: null,
+  },
+  {
+    id: 'CMP-2024-006',
+    subject: 'Incorrect fee amount on semester invoice',
+    description:
+      'The invoice generated for the Fall 2024 semester includes a lab fee for CS-301, which I have already paid as part of my registration. I have receipts available for verification.',
+    category: 'administrative',
+    status: 'under_review',
+    priority: 'medium',
+    submittedBy: 'Fatima Ali',
+    assignedTo: 'Finance Office',
+    submittedAt: '2024-10-17T10:00:00Z',
+    updatedAt: '2024-10-20T15:00:00Z',
+    isEscalated: false,
+    possibleDuplicateId: null,
+  },
+  {
+    id: 'CMP-2024-007',
+    subject: 'Cafeteria food quality — repeated concerns',
+    description:
+      'Over the past two weeks the quality of meals served at the main cafeteria has noticeably declined. Several students have reported stomach discomfort after lunch.',
+    category: 'facilities',
+    status: 'submitted',
+    priority: 'low',
+    submittedBy: 'Bilal Khan',
+    assignedTo: null,
+    submittedAt: '2024-10-21T07:30:00Z',
+    updatedAt: '2024-10-21T07:30:00Z',
+    isEscalated: false,
+    possibleDuplicateId: null,
+  },
+  {
+    id: 'CMP-2024-008',
+    subject: 'Unresponsive elevator in Science Block',
+    description:
+      'The left elevator in the Science Block has been unresponsive for three days. The service button flashes but the cab does not arrive at called floors.',
+    category: 'facilities',
+    status: 'rejected',
+    priority: 'low',
+    submittedBy: 'Sara Malik',
+    assignedTo: 'Facilities Maintenance',
+    submittedAt: '2024-10-01T09:00:00Z',
+    updatedAt: '2024-10-08T11:30:00Z',
+    isEscalated: false,
+    possibleDuplicateId: null,
+  },
+];
+
+export const mockUpdates: ComplaintUpdate[] = [
+  {
+    id: 'UPD-001',
+    complaintId: 'CMP-2024-001',
+    status: 'submitted',
+    message: 'Complaint registered and assigned to the IT infrastructure queue.',
+    author: 'System',
+    timestamp: '2024-10-14T09:15:00Z',
+  },
+  {
+    id: 'UPD-002',
+    complaintId: 'CMP-2024-001',
+    status: 'under_review',
+    message: 'Ticket reviewed and acknowledged by IT Support Desk.',
+    author: 'IT Support Desk',
+    timestamp: '2024-10-15T10:00:00Z',
+  },
+  {
+    id: 'UPD-003',
+    complaintId: 'CMP-2024-001',
+    status: 'in_progress',
+    message: 'On-site inspection scheduled. Replacement projector sourced from inventory.',
+    author: 'IT Support Desk',
+    timestamp: '2024-10-18T14:30:00Z',
+  },
+  {
+    id: 'UPD-004',
+    complaintId: 'CMP-2024-002',
+    status: 'submitted',
+    message: 'Complaint registered. Awaiting triage and assignment.',
+    author: 'System',
+    timestamp: '2024-10-19T11:42:00Z',
+  },
+  {
+    id: 'UPD-005',
+    complaintId: 'CMP-2024-003',
+    status: 'submitted',
+    message: 'Grade review request submitted with supporting documents.',
+    author: 'System',
+    timestamp: '2024-10-10T08:00:00Z',
+  },
+  {
+    id: 'UPD-006',
+    complaintId: 'CMP-2024-003',
+    status: 'under_review',
+    message: 'Registrar Office has received the request and is comparing graded sheets.',
+    author: 'Registrar Office',
+    timestamp: '2024-10-16T10:20:00Z',
+  },
+  {
+    id: 'UPD-007',
+    complaintId: 'CMP-2024-004',
+    status: 'submitted',
+    message: 'Wi-Fi performance complaint logged with time-of-day details.',
+    author: 'System',
+    timestamp: '2024-09-28T16:30:00Z',
+  },
+  {
+    id: 'UPD-008',
+    complaintId: 'CMP-2024-004',
+    status: 'in_progress',
+    message: 'Network team identified bandwidth throttling on the library access point.',
+    author: 'IT Support Desk',
+    timestamp: '2024-10-02T11:00:00Z',
+  },
+  {
+    id: 'UPD-009',
+    complaintId: 'CMP-2024-004',
+    status: 'resolved',
+    message: 'Access point reconfigured and load-balanced. Evening speeds restored.',
+    author: 'IT Support Desk',
+    timestamp: '2024-10-05T09:00:00Z',
+  },
+  {
+    id: 'UPD-010',
+    complaintId: 'CMP-2024-005',
+    status: 'submitted',
+    message: 'Safety hazard reported. Urgent repair requested.',
+    author: 'System',
+    timestamp: '2024-10-15T13:10:00Z',
+  },
+  {
+    id: 'UPD-011',
+    complaintId: 'CMP-2024-005',
+    status: 'in_progress',
+    message: 'Facilities team dispatched. Temporary barriers installed.',
+    author: 'Facilities Maintenance',
+    timestamp: '2024-10-17T09:00:00Z',
+  },
+  {
+    id: 'UPD-012',
+    complaintId: 'CMP-2024-005',
+    status: 'in_progress',
+    message: 'Escalation request submitted by complainant citing delay in permanent repair.',
+    author: 'Omar Sheikh',
+    timestamp: '2024-10-20T08:45:00Z',
+  },
+  {
+    id: 'UPD-013',
+    complaintId: 'CMP-2024-006',
+    status: 'submitted',
+    message: 'Invoice discrepancy reported with receipt references.',
+    author: 'System',
+    timestamp: '2024-10-17T10:00:00Z',
+  },
+  {
+    id: 'UPD-014',
+    complaintId: 'CMP-2024-006',
+    status: 'under_review',
+    message: 'Finance Office reviewing payment records against the disputed invoice line.',
+    author: 'Finance Office',
+    timestamp: '2024-10-20T15:00:00Z',
+  },
+  {
+    id: 'UPD-015',
+    complaintId: 'CMP-2024-007',
+    status: 'submitted',
+    message: 'Food quality complaint registered with student health references.',
+    author: 'System',
+    timestamp: '2024-10-21T07:30:00Z',
+  },
+  {
+    id: 'UPD-016',
+    complaintId: 'CMP-2024-008',
+    status: 'submitted',
+    message: 'Elevator malfunction reported with duration details.',
+    author: 'System',
+    timestamp: '2024-10-01T09:00:00Z',
+  },
+  {
+    id: 'UPD-017',
+    complaintId: 'CMP-2024-008',
+    status: 'rejected',
+    message: 'Elevator was serviced on 2024-10-05. No malfunction reproduced on inspection. Complaint closed.',
+    author: 'Facilities Maintenance',
+    timestamp: '2024-10-08T11:30:00Z',
+  },
+];
+
+export const mockNotifications: AppNotification[] = [
+  {
+    id: 'NOT-001',
+    complaintId: 'CMP-2024-001',
+    type: 'status_update',
+    title: 'Status update on CMP-2024-001',
+    message: 'Your complaint has moved to In Progress. On-site inspection is scheduled.',
+    read: false,
+    timestamp: '2024-10-18T14:30:00Z',
+  },
+  {
+    id: 'NOT-002',
+    complaintId: 'CMP-2024-003',
+    type: 'assignment',
+    title: 'Complaint assigned for review',
+    message: 'CMP-2024-003 has been assigned to the Registrar Office for review.',
+    read: false,
+    timestamp: '2024-10-16T10:20:00Z',
+  },
+  {
+    id: 'NOT-003',
+    complaintId: 'CMP-2024-004',
+    type: 'resolution',
+    title: 'Complaint resolved',
+    message: 'CMP-2024-004 has been marked as resolved. Evening Wi-Fi speeds are restored.',
+    read: true,
+    timestamp: '2024-10-05T09:00:00Z',
+  },
+  {
+    id: 'NOT-004',
+    complaintId: 'CMP-2024-006',
+    type: 'status_update',
+    title: 'Under review',
+    message: 'CMP-2024-006 is now under review by the Finance Office.',
+    read: true,
+    timestamp: '2024-10-20T15:00:00Z',
+  },
+];
+
+// Convenience label maps — kept here so both UI and mock layers share one source.
+
+export const categoryLabels: Record<string, string> = {
+  facilities: 'Facilities',
+  it_infrastructure: 'IT Infrastructure',
+  academic: 'Academic',
+  administrative: 'Administrative',
+  harassment: 'Harassment & Safety',
+  other: 'Other',
+};
+
+export const statusLabels: Record<string, string> = {
+  submitted: 'Submitted',
+  under_review: 'Under Review',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+  rejected: 'Rejected',
+};
+
+export const priorityLabels: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  critical: 'Critical',
+};
