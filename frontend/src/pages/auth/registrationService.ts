@@ -1,4 +1,5 @@
 import type { RegistrationFormValues } from "./validateRegistration";
+import { addUser, hasUser } from "./mockUserStore";
 
 export type RegistrationResult =
   | { ok: true }

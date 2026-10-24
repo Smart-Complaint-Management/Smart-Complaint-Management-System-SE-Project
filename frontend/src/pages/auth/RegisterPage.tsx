@@ -4,6 +4,7 @@ import { UserPlus } from "lucide-react";
 import { validateRegistration } from "./validateRegistration";
 import type { RegistrationErrors, RegistrationFormValues } from "./validateRegistration";
 import { registerUser } from "./registrationService";
+import { Link } from "react-router-dom";
 
 const EMPTY_FORM: RegistrationFormValues = {
   fullName: "",
@@ -105,7 +106,14 @@ export function RegisterPage() {
                 Account created (demo). Saving to the database will be connected to the backend later.
               </p>
             )}
-          </form>
+                       </form>
+
+             <p className="mt-4 text-center text-sm text-ink-500">
+               Already have an account?{" "}
+               <Link to="/login" className="font-medium text-accent-700 hover:underline">
+                 Log in
+               </Link>
+             </p>
         </div>
       </div>
     </div>
