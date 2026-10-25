@@ -1,4 +1,3 @@
-```tsx
 import { useMemo, useState } from 'react';
 import { FileSearch } from 'lucide-react';
 
