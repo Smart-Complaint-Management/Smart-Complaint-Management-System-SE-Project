@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Send, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -9,6 +9,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useRole } from '@/context/RoleContext';
 import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
 import { formatDate, formatDateTime } from '@/services/api';
+import { updateComplaintStatus } from '@/services/complaintService';
+import type { ComplaintStatus } from '@/types';
 
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +24,13 @@ export function ComplaintDetailPage() {
   const [showEscalationForm, setShowEscalationForm] = useState(false);
   const [escalationReason, setEscalationReason] = useState('');
   const [escalationSubmitted, setEscalationSubmitted] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<ComplaintStatus | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
+
+  useEffect(() => {
+    setPendingStatus(null);
+    setStatusMessage('');
+  }, [id]);
 
   if (!complaint) {
     return (
@@ -50,6 +59,20 @@ export function ComplaintDetailPage() {
     if (escalationReason.trim()) {
       // Demo interaction only — no backend persistence.
       setEscalationSubmitted(true);
+    }
+  };
+
+  const handleStatusUpdate = () => {
+    if (!id || !pendingStatus) return;
+
+    const result = updateComplaintStatus(id, pendingStatus, user.name);
+    if (result.outcome === 'updated') {
+      setPendingStatus(null);
+      setStatusMessage('Complaint status updated.');
+    } else if (result.outcome === 'unchanged') {
+      setStatusMessage('Choose a different status before saving.');
+    } else {
+      setStatusMessage('Complaint not found.');
     }
   };
 
@@ -135,13 +158,34 @@ export function ComplaintDetailPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-medium text-ink-400">Update Status</label>
-                  <select className="input mt-1" defaultValue={complaint.status} aria-label="Update status">
+                  <select
+                    className="input mt-1"
+                    value={pendingStatus ?? complaint.status}
+                    onChange={(event) => {
+                      setPendingStatus(event.target.value as ComplaintStatus);
+                      setStatusMessage('');
+                    }}
+                    aria-label="Update status"
+                  >
                     <option value="submitted">Submitted</option>
                     <option value="under_review">Under Review</option>
                     <option value="in_progress">In Progress</option>
                     <option value="resolved">Resolved</option>
                     <option value="rejected">Rejected</option>
                   </select>
+                  <button
+                    type="button"
+                    className="btn btn-primary mt-2 w-full"
+                    onClick={handleStatusUpdate}
+                    disabled={!pendingStatus || pendingStatus === complaint.status}
+                  >
+                    Save Status
+                  </button>
+                  {statusMessage && (
+                    <p role="status" className="mt-2 text-xs text-ink-500">
+                      {statusMessage}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-400">Assign To</label>
@@ -154,7 +198,7 @@ export function ComplaintDetailPage() {
                   </select>
                 </div>
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  These controls are UI affordances only. Status and assignment changes are not persisted in this demo.
+                  Status changes update the in-memory mock data and are lost after a refresh. The assignment control here is a UI affordance only.
                 </p>
               </div>
             </div>

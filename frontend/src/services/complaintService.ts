@@ -1,5 +1,5 @@
-import { mockComplaints, mockUpdates } from '@/data/mockData';
-import type { Complaint, ComplaintCategory, ComplaintPriority } from '@/types';
+import { mockComplaints, mockUpdates, statusLabels } from '@/data/mockData';
+import type { Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus, ComplaintUpdate } from '@/types';
 
 export interface NewComplaintInput {
   subject: string;
@@ -53,4 +53,36 @@ export async function createComplaint(input: NewComplaintInput): Promise<Complai
   });
 
   return complaint;
+}
+
+export type UpdateComplaintStatusResult =
+  | { outcome: 'updated'; update: ComplaintUpdate }
+  | { outcome: 'unchanged' }
+  | { outcome: 'not_found' };
+
+/** Update a complaint and append its status change to the in-memory mock timeline. */
+export function updateComplaintStatus(
+  complaintId: string,
+  status: ComplaintStatus,
+  author: string,
+): UpdateComplaintStatusResult {
+  const complaint = mockComplaints.find((item) => item.id === complaintId);
+  if (!complaint) return { outcome: 'not_found' };
+  if (complaint.status === status) return { outcome: 'unchanged' };
+
+  const timestamp = new Date().toISOString();
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(mockUpdates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status,
+    message: `Status changed to ${statusLabels[status]}.`,
+    author,
+    timestamp,
+  };
+
+  complaint.status = status;
+  complaint.updatedAt = timestamp;
+  mockUpdates.push(update);
+
+  return { outcome: 'updated', update };
 }
