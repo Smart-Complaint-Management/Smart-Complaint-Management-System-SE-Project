@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { Topbar, RoleSwitcher } from '@/components/layout/Topbar';
+   import { Topbar } from '@/components/layout/Topbar';
 import { useRole } from '@/context/RoleContext';
 
 interface ApplicationShellProps {
@@ -49,8 +49,7 @@ export function ApplicationShell({ children }: ApplicationShellProps) {
         </main>
       </div>
 
-      {/* Demo role switcher */}
-      <RoleSwitcher />
+      
     </div>
   );
 }
