@@ -7,6 +7,7 @@ import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useRole } from '@/context/RoleContext';
+import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
 import { formatDate, formatDateTime } from '@/services/api';
 import { updateComplaintStatus } from '@/services/complaintService';
@@ -15,10 +16,15 @@ import type { ComplaintStatus } from '@/types';
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useRole();
+  const { session } = useAuth();
   const isAdmin = user.role === 'admin';
   const navigate = useNavigate();
 
-  const complaint = mockComplaints.find((c) => c.id === id);
+  const foundComplaint = mockComplaints.find((c) => c.id === id);
+  const complaint = foundComplaint &&
+    (isAdmin || (session && foundComplaint.submittedBy === session.fullName))
+    ? foundComplaint
+    : undefined;
   const updates = mockUpdates.filter((u) => u.complaintId === id);
 
   const [showEscalationForm, setShowEscalationForm] = useState(false);
