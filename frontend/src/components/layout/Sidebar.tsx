@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, FileText, ClipboardList, AlertTriangle, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, FileText, ClipboardList, AlertTriangle, BarChart3, Database } from 'lucide-react';
 import { NavigationItem } from '@/components/layout/NavigationItem';
 import type { UserRole } from '@/types';
 
@@ -20,6 +20,7 @@ const adminNav = [
   { to: '/admin/assignments', label: 'Assignments', icon: ClipboardList },
   { to: '/admin/escalations', label: 'Escalations', icon: AlertTriangle },
   { to: '/admin/reports', label: 'Reports & Analytics', icon: BarChart3 },
+  { to: '/admin/backup', label: 'Backup & Recovery', icon: Database },
 ];
 
 export function Sidebar({ variant }: SidebarProps) {

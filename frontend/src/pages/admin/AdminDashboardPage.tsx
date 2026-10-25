@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FileText,
@@ -17,75 +17,107 @@ import { SummaryMetric } from '@/components/ui/SummaryMetric';
 import { ComplaintTable } from '@/components/ui/ComplaintTable';
 import { getAdminComplaints } from '@/data/adminComplaintData';
 
+const statusLabels: Record<string, string> = {
+  submitted: 'Submitted',
+  under_review: 'Under Review',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+  rejected: 'Rejected',
+};
+
+const priorityLabels: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  critical: 'Critical',
+};
+
 export function AdminDashboardPage() {
-  const complaints = getAdminComplaints();
+  const complaints = useMemo(() => getAdminComplaints(), []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
 
-  const total = complaints.length;
+  const { total, open, resolved, escalated, unassigned, recent, needsAttention } =
+    useMemo(() => {
+      const openComplaints = [];
+      const resolvedComplaints = [];
+      const escalatedComplaints = [];
+      const unassignedComplaints = [];
+      const attentionComplaints = [];
 
-  const open = complaints.filter(
-    (c) =>
-      c.status === 'submitted' ||
-      c.status === 'under_review' ||
-      c.status === 'in_progress',
-  );
+      for (const complaint of complaints) {
+        if (
+          complaint.status === 'submitted' ||
+          complaint.status === 'under_review' ||
+          complaint.status === 'in_progress'
+        ) {
+          openComplaints.push(complaint);
+        }
 
-  const resolved = complaints.filter((c) => c.status === 'resolved');
-  const escalated = complaints.filter((c) => c.isEscalated);
+        if (complaint.status === 'resolved') {
+          resolvedComplaints.push(complaint);
+        }
 
-  const unassigned = complaints.filter(
-    (c) => c.assignedTo === null || c.assignedTo.trim() === '',
-  );
+        if (complaint.isEscalated) {
+          escalatedComplaints.push(complaint);
+        }
 
-  const recent = [...complaints]
-    .sort(
-      (a, b) =>
-        new Date(b.submittedAt).getTime() -
-        new Date(a.submittedAt).getTime(),
-    )
-    .slice(0, 5);
+        if (
+          complaint.assignedTo === null ||
+          complaint.assignedTo.trim() === ''
+        ) {
+          unassignedComplaints.push(complaint);
+        }
 
-  const needsAttention = complaints.filter(
-    (c) =>
-      c.priority === 'critical' ||
-      (c.priority === 'high' &&
-        (c.assignedTo === null || c.assignedTo.trim() === '')),
-  );
+        if (
+          complaint.priority === 'critical' ||
+          (complaint.priority === 'high' &&
+            (complaint.assignedTo === null ||
+              complaint.assignedTo.trim() === ''))
+        ) {
+          attentionComplaints.push(complaint);
+        }
+      }
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+      const recentComplaints = [...complaints]
+        .sort(
+          (a, b) =>
+            new Date(b.submittedAt).getTime() -
+            new Date(a.submittedAt).getTime(),
+        )
+        .slice(0, 5);
 
-  const filteredComplaints = complaints.filter((c) => {
-    const matchesSearch =
-      normalizedQuery === '' ||
-      c.id.toLowerCase().includes(normalizedQuery) ||
-      c.subject.toLowerCase().includes(normalizedQuery);
+      return {
+        total: complaints.length,
+        open: openComplaints,
+        resolved: resolvedComplaints,
+        escalated: escalatedComplaints,
+        unassigned: unassignedComplaints,
+        recent: recentComplaints,
+        needsAttention: attentionComplaints,
+      };
+    }, [complaints]);
 
-    const matchesStatus =
-      statusFilter === 'all' || c.status === statusFilter;
+  const filteredComplaints = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    const matchesPriority =
-      priorityFilter === 'all' || c.priority === priorityFilter;
+    return complaints.filter((complaint) => {
+      const matchesSearch =
+        normalizedQuery === '' ||
+        complaint.id.toLowerCase().includes(normalizedQuery) ||
+        complaint.subject.toLowerCase().includes(normalizedQuery);
 
-    return matchesSearch && matchesStatus && matchesPriority;
-  });
+      const matchesStatus =
+        statusFilter === 'all' || complaint.status === statusFilter;
 
-  const statusLabels: Record<string, string> = {
-    submitted: 'Submitted',
-    under_review: 'Under Review',
-    in_progress: 'In Progress',
-    resolved: 'Resolved',
-    rejected: 'Rejected',
-  };
+      const matchesPriority =
+        priorityFilter === 'all' || complaint.priority === priorityFilter;
 
-  const priorityLabels: Record<string, string> = {
-    low: 'Low',
-    medium: 'Medium',
-    high: 'High',
-    critical: 'Critical',
-  };
+      return matchesSearch && matchesStatus && matchesPriority;
+    });
+  }, [complaints, searchQuery, statusFilter, priorityFilter]);
 
   return (
     <div>
@@ -232,7 +264,9 @@ export function AdminDashboardPage() {
             Showing {filteredComplaints.length} of {total} complaints
           </p>
 
-          {(searchQuery || statusFilter !== 'all' || priorityFilter !== 'all') && (
+          {(searchQuery ||
+            statusFilter !== 'all' ||
+            priorityFilter !== 'all') && (
             <button
               type="button"
               onClick={() => {
@@ -304,18 +338,20 @@ export function AdminDashboardPage() {
                 No complaints require immediate attention.
               </p>
             ) : (
-              needsAttention.map((c) => (
+              needsAttention.map((complaint) => (
                 <Link
-                  key={c.id}
-                  to={`/complaints/${c.id}`}
+                  key={complaint.id}
+                  to={`/complaints/${complaint.id}`}
                   className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50"
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink-800 group-hover:text-accent-700">
-                      {c.subject}
+                      {complaint.subject}
                     </p>
-                    <p className="font-mono text-xs text-ink-400">{c.id}</p>
+                    <p className="font-mono text-xs text-ink-400">
+                      {complaint.id}
+                    </p>
                   </div>
                   <ArrowRight className="h-4 w-4 shrink-0 text-ink-300 group-hover:text-accent-500" />
                 </Link>
@@ -344,18 +380,20 @@ export function AdminDashboardPage() {
                 No escalated complaints.
               </p>
             ) : (
-              escalated.map((c) => (
+              escalated.map((complaint) => (
                 <Link
-                  key={c.id}
-                  to={`/complaints/${c.id}`}
+                  key={complaint.id}
+                  to={`/complaints/${complaint.id}`}
                   className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50"
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink-800 group-hover:text-accent-700">
-                      {c.subject}
+                      {complaint.subject}
                     </p>
-                    <p className="font-mono text-xs text-ink-400">{c.id}</p>
+                    <p className="font-mono text-xs text-ink-400">
+                      {complaint.id}
+                    </p>
                   </div>
                   <ArrowRight className="h-4 w-4 shrink-0 text-ink-300 group-hover:text-accent-500" />
                 </Link>

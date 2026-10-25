@@ -1,4 +1,5 @@
 
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -9,6 +10,8 @@ import {
   AlertTriangle,
   TrendingUp,
   Users,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -17,8 +20,10 @@ import { getAdminComplaints } from '@/data/adminComplaintData';
 import { categoryLabels, statusLabels } from '@/data/mockData';
 
 export function AdminReportsPage() {
-  // Read the saved complaint data, including team assignments.
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const complaints = getAdminComplaints();
+  void refreshKey;
 
   const total = complaints.length;
   const resolved = complaints.filter((c) => c.status === 'resolved');
@@ -44,7 +49,6 @@ export function AdminReportsPage() {
   const assignmentRate =
     total > 0 ? Math.round((assigned.length / total) * 100) : 0;
 
-  // Category breakdown
   const byCategory = Object.entries(categoryLabels)
     .map(([value, label]) => ({
       label,
@@ -54,7 +58,6 @@ export function AdminReportsPage() {
 
   const maxCategory = Math.max(...byCategory.map((c) => c.count), 1);
 
-  // Status breakdown
   const byStatus = Object.entries(statusLabels)
     .map(([value, label]) => ({
       value,
@@ -65,7 +68,6 @@ export function AdminReportsPage() {
 
   const maxStatus = Math.max(...byStatus.map((s) => s.count), 1);
 
-  // Team assignment breakdown
   const teamCounts = new Map<string, number>();
 
   complaints.forEach((complaint) => {
@@ -83,8 +85,6 @@ export function AdminReportsPage() {
 
   const maxTeam = Math.max(...byTeam.map((team) => team.count), 1);
 
-  // Calculate average resolution time from resolved complaints.
-  // This uses submittedAt and updatedAt as a demo approximation.
   const resolutionDurations = resolved
     .map((complaint) => {
       const submitted = new Date(complaint.submittedAt).getTime();
@@ -111,12 +111,97 @@ export function AdminReportsPage() {
         ).toFixed(1)
       : null;
 
+  // Export the current report metrics and breakdowns as a CSV file.
+  const handleExportReport = () => {
+    const rows: (string | number)[][] = [
+      ['Smart Complaint Management System - Report'],
+      ['Generated At', new Date().toLocaleString()],
+      [],
+      ['Metric', 'Value'],
+      ['Total Complaints', total],
+      ['Open Complaints', open.length],
+      ['Resolved Complaints', resolved.length],
+      ['Rejected Complaints', rejected.length],
+      ['Resolution Rate', `${resolutionRate}%`],
+      ['Escalation Rate', `${escalationRate}%`],
+      ['Assigned Complaints', assigned.length],
+      ['Awaiting Assignment', unassigned.length],
+      [
+        'Average Resolution Time (days)',
+        averageResolutionDays ?? 'N/A',
+      ],
+      [],
+      ['Complaints by Category'],
+      ['Category', 'Count'],
+      ...byCategory.map((item) => [item.label, item.count]),
+      [],
+      ['Complaints by Status'],
+      ['Status', 'Count'],
+      ...byStatus.map((item) => [item.label, item.count]),
+      [],
+      ['Team Assignment Breakdown'],
+      ['Team', 'Count'],
+      ...byTeam.map((item) => [item.team, item.count]),
+    ];
+
+    const escapeCsv = (value: string | number) =>
+      `"${String(value).replace(/"/g, '""')}"`;
+
+    const csv = rows
+      .map((row) => row.map(escapeCsv).join(','))
+      .join('\r\n');
+
+    const blob = new Blob(['\uFEFF', csv], {
+      type: 'text/csv;charset=utf-8;',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = `scms-report-${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    // Revoke after the browser has had time to start the download.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   return (
     <div>
-      <PageHeader
-        title="Reports & Analytics"
-        description="Summary of complaint activity, category distribution, team assignments, and status breakdown."
-      />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <PageHeader
+            title="Reports & Analytics"
+            description="Summary of complaint activity, category distribution, team assignments, and status breakdown."
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setRefreshKey((previous) => previous + 1)}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2"
+            aria-label="Refresh reports"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh Reports
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportReport}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-800 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2"
+          >
+            <Download className="h-4 w-4" />
+            Download Report
+          </button>
+        </div>
+      </div>
 
       <p className="mb-5 text-xs text-ink-400">
         Demo analytics based on complaint data saved in this browser. These
@@ -190,9 +275,8 @@ export function AdminReportsPage() {
         </div>
       </div>
 
-      {/* Category and status charts */}
+      {/* Category and status breakdowns */}
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Category distribution */}
         <div className="card p-6">
           <h2 className="mb-1 text-base font-semibold text-ink-900">
             Complaints by Category
@@ -230,7 +314,6 @@ export function AdminReportsPage() {
           )}
         </div>
 
-        {/* Status breakdown */}
         <div className="card p-6">
           <h2 className="mb-1 text-base font-semibold text-ink-900">
             Status Breakdown
@@ -304,7 +387,8 @@ export function AdminReportsPage() {
                 <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                   <span className="text-ink-600">{team}</span>
                   <span className="font-medium text-ink-800">
-                    {count} ({total > 0 ? Math.round((count / total) * 100) : 0}%)
+                    {count} (
+                    {total > 0 ? Math.round((count / total) * 100) : 0}%)
                   </span>
                 </div>
 
@@ -322,7 +406,7 @@ export function AdminReportsPage() {
         )}
       </div>
 
-      {/* Summary footer */}
+      {/* Summary metrics */}
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="card p-5">
           <div className="flex items-center gap-3">

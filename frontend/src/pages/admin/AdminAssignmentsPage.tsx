@@ -7,7 +7,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
-import { mockComplaints } from '@/data/mockData';
+import { AssignmentAuditHistory } from '@/components/ui/AssignmentAuditHistory';
+import { getAdminComplaints } from '@/data/adminComplaintData';
 import { formatDate } from '@/services/api';
 import type { Complaint } from '@/types';
 
@@ -39,29 +40,11 @@ function createAuditId(): string {
     return crypto.randomUUID();
   }
 
-  return (
-    Date.now().toString(36) +
-    '-' +
-    Math.random().toString(36).slice(2)
-  );
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 }
 
 function loadSavedComplaints(): Complaint[] {
-  try {
-    const saved = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
-
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-
-      if (Array.isArray(parsed)) {
-        return parsed as Complaint[];
-      }
-    }
-  } catch (error) {
-    console.error('Could not load saved assignments:', error);
-  }
-
-  return mockComplaints.map((complaint) => ({ ...complaint }));
+  return getAdminComplaints();
 }
 
 function loadAuditEntries(): AuditEntry[] {
@@ -79,26 +62,16 @@ function loadAuditEntries(): AuditEntry[] {
           typeof entry === 'object' && entry !== null,
       )
       .map((entry) => ({
-        id:
-          typeof entry.id === 'string'
-            ? entry.id
-            : createAuditId(),
+        id: typeof entry.id === 'string' ? entry.id : createAuditId(),
         complaintId:
-          typeof entry.complaintId === 'string'
-            ? entry.complaintId
-            : 'Unknown',
+          typeof entry.complaintId === 'string' ? entry.complaintId : 'Unknown',
         action:
           entry.action === 'REASSIGNED'
-            ? 'REASSIGNED' as const
-            : 'ASSIGNED' as const,
+            ? ('REASSIGNED' as const)
+            : ('ASSIGNED' as const),
         previousTeam:
-          typeof entry.previousTeam === 'string'
-            ? entry.previousTeam
-            : null,
-        newTeam:
-          typeof entry.newTeam === 'string'
-            ? entry.newTeam
-            : 'Unknown',
+          typeof entry.previousTeam === 'string' ? entry.previousTeam : null,
+        newTeam: typeof entry.newTeam === 'string' ? entry.newTeam : 'Unknown',
         timestamp:
           typeof entry.timestamp === 'string'
             ? entry.timestamp
@@ -122,16 +95,12 @@ export function AdminAssignmentsPage() {
     useState<Record<string, string>>({});
 
   const [message, setMessage] = useState('');
+
   const [auditEntries, setAuditEntries] =
     useState<AuditEntry[]>(loadAuditEntries);
 
-  const unassigned = complaints.filter(
-    (complaint) => !complaint.assignedTo,
-  );
-
-  const assigned = complaints.filter(
-    (complaint) => Boolean(complaint.assignedTo),
-  );
+  const unassigned = complaints.filter((complaint) => !complaint.assignedTo);
+  const assigned = complaints.filter((complaint) => Boolean(complaint.assignedTo));
 
   function handleTeamChange(complaintId: string, team: string) {
     setSelectedTeams((previous) => ({
@@ -150,9 +119,7 @@ export function AdminAssignmentsPage() {
       return;
     }
 
-    const complaint = complaints.find(
-      (item) => item.id === complaintId,
-    );
+    const complaint = complaints.find((item) => item.id === complaintId);
 
     if (!complaint) {
       setMessage('Complaint not found.');
@@ -165,13 +132,14 @@ export function AdminAssignmentsPage() {
     }
 
     const previousTeam = complaint.assignedTo;
+    const timestamp = new Date().toISOString();
 
     const updatedComplaints = complaints.map((item) =>
       item.id === complaintId
         ? {
             ...item,
             assignedTo: team,
-            updatedAt: new Date().toISOString(),
+            updatedAt: timestamp,
           }
         : item,
     );
@@ -182,23 +150,33 @@ export function AdminAssignmentsPage() {
       action: previousTeam ? 'REASSIGNED' : 'ASSIGNED',
       previousTeam,
       newTeam: team,
-      timestamp: new Date().toISOString(),
+      timestamp,
       performedBy: 'Admin (demo mode)',
     };
 
-    try {
-      const updatedAudit = [...auditEntries, auditEntry];
+    const updatedAudit = [...auditEntries, auditEntry];
 
-      // Persist both records before changing the displayed state.
+    let previousAssignments: string | null;
+    let previousAudit: string | null;
+
+    try {
+      previousAssignments = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
+      previousAudit = localStorage.getItem(AUDIT_STORAGE_KEY);
+    } catch (error) {
+      console.error('Could not read existing assignment data:', error);
+      setMessage(
+        'Could not read browser storage. No assignment changes were made.',
+      );
+      return;
+    }
+
+    try {
       localStorage.setItem(
         ASSIGNMENTS_STORAGE_KEY,
         JSON.stringify(updatedComplaints),
       );
 
-      localStorage.setItem(
-        AUDIT_STORAGE_KEY,
-        JSON.stringify(updatedAudit),
-      );
+      localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updatedAudit));
 
       setComplaints(updatedComplaints);
       setAuditEntries(updatedAudit);
@@ -216,8 +194,38 @@ export function AdminAssignmentsPage() {
       );
     } catch (error) {
       console.error('Could not save assignment or audit history:', error);
+
+      let rollbackSucceeded = true;
+
+      try {
+        if (previousAssignments === null) {
+          localStorage.removeItem(ASSIGNMENTS_STORAGE_KEY);
+        } else {
+          localStorage.setItem(
+            ASSIGNMENTS_STORAGE_KEY,
+            previousAssignments,
+          );
+        }
+      } catch (rollbackError) {
+        rollbackSucceeded = false;
+        console.error('Could not restore previous assignments:', rollbackError);
+      }
+
+      try {
+        if (previousAudit === null) {
+          localStorage.removeItem(AUDIT_STORAGE_KEY);
+        } else {
+          localStorage.setItem(AUDIT_STORAGE_KEY, previousAudit);
+        }
+      } catch (rollbackError) {
+        rollbackSucceeded = false;
+        console.error('Could not restore previous audit history:', rollbackError);
+      }
+
       setMessage(
-        'Could not save the assignment. Check browser storage and try again.',
+        rollbackSucceeded
+          ? 'Assignment was not saved. Previous data was restored; please try again.'
+          : 'Save failed and rollback was incomplete. Browser storage may be inconsistent; check storage before continuing.',
       );
     }
   }
@@ -298,7 +306,6 @@ export function AdminAssignmentsPage() {
                     <option value="" disabled>
                       Select team...
                     </option>
-
                     {ASSIGNEES.map((team) => (
                       <option key={team} value={team}>
                         {team}
@@ -351,7 +358,6 @@ export function AdminAssignmentsPage() {
                   <span className="font-mono text-xs font-medium text-ink-400">
                     {complaint.id}
                   </span>
-
                   <p className="mt-0.5 truncate text-sm font-medium text-ink-800 group-hover:text-accent-700">
                     {complaint.subject}
                   </p>
@@ -375,7 +381,6 @@ export function AdminAssignmentsPage() {
                     <option value="" disabled>
                       Reassign team...
                     </option>
-
                     {ASSIGNEES.map((team) => (
                       <option key={team} value={team}>
                         {team}
@@ -413,7 +418,6 @@ export function AdminAssignmentsPage() {
         <h2 className="mb-3 text-base font-semibold text-ink-900">
           Recent Assignment Activity
         </h2>
-
         <AssignmentAuditHistory auditEntries={auditEntries} />
       </section>
 
@@ -422,55 +426,6 @@ export function AdminAssignmentsPage() {
         They are not stored in a shared database. Browser-stored audit entries
         can be modified or deleted and are not tamper-proof security records.
       </p>
-    </div>
-  );
-}
-
-function AssignmentAuditHistory({
-  auditEntries,
-}: {
-  auditEntries: AuditEntry[];
-}) {
-  const recentEntries = [...auditEntries].reverse();
-
-  if (recentEntries.length === 0) {
-    return (
-      <p className="text-sm text-ink-500">
-        No assignment activity recorded yet. Assign or reassign a complaint
-        to create an audit entry.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {recentEntries.map((entry) => (
-        <div
-          key={entry.id}
-          className="border-b border-ink-100 pb-3 last:border-0 last:pb-0"
-        >
-          <p className="text-sm font-medium text-ink-800">
-            {entry.action === 'ASSIGNED' ? 'Assigned' : 'Reassigned'}{' '}
-            {entry.complaintId}
-          </p>
-
-          <p className="mt-1 text-sm text-ink-600">
-            {entry.previousTeam
-              ? entry.previousTeam + ' → ' + entry.newTeam
-              : 'Assigned to ' + entry.newTeam}
-          </p>
-
-          <p className="mt-1 text-xs text-ink-400">
-            Record ID: {entry.id}
-          </p>
-
-          <p className="mt-1 text-xs text-ink-400">
-            {new Date(entry.timestamp).toLocaleString()}
-            {' · '}
-            {entry.performedBy}
-          </p>
-        </div>
-      ))}
     </div>
   );
 }
