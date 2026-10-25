@@ -9,7 +9,7 @@ import {
 import { getMyComplaints } from '../../services/complaintService';
 import type { Complaint } from '../../types';
 
-export default function UserComplaintsPage() {
+export function UserComplaintsPage() {
   const { session } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
