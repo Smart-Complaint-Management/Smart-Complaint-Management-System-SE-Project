@@ -1,4 +1,5 @@
 
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FileText,
@@ -7,6 +8,8 @@ import {
   AlertTriangle,
   ArrowRight,
   Inbox,
+  Search,
+  X,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -15,8 +18,11 @@ import { ComplaintTable } from '@/components/ui/ComplaintTable';
 import { getAdminComplaints } from '@/data/adminComplaintData';
 
 export function AdminDashboardPage() {
-  // Read the latest saved complaint data, including team assignments.
   const complaints = getAdminComplaints();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   const total = complaints.length;
 
@@ -28,10 +34,11 @@ export function AdminDashboardPage() {
   );
 
   const resolved = complaints.filter((c) => c.status === 'resolved');
-
   const escalated = complaints.filter((c) => c.isEscalated);
 
-  const unassigned = complaints.filter((c) => c.assignedTo === null);
+  const unassigned = complaints.filter(
+    (c) => c.assignedTo === null || c.assignedTo.trim() === '',
+  );
 
   const recent = [...complaints]
     .sort(
@@ -44,8 +51,41 @@ export function AdminDashboardPage() {
   const needsAttention = complaints.filter(
     (c) =>
       c.priority === 'critical' ||
-      (c.priority === 'high' && c.assignedTo === null),
+      (c.priority === 'high' &&
+        (c.assignedTo === null || c.assignedTo.trim() === '')),
   );
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const filteredComplaints = complaints.filter((c) => {
+    const matchesSearch =
+      normalizedQuery === '' ||
+      c.id.toLowerCase().includes(normalizedQuery) ||
+      c.subject.toLowerCase().includes(normalizedQuery);
+
+    const matchesStatus =
+      statusFilter === 'all' || c.status === statusFilter;
+
+    const matchesPriority =
+      priorityFilter === 'all' || c.priority === priorityFilter;
+
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+
+  const statusLabels: Record<string, string> = {
+    submitted: 'Submitted',
+    under_review: 'Under Review',
+    in_progress: 'In Progress',
+    resolved: 'Resolved',
+    rejected: 'Rejected',
+  };
+
+  const priorityLabels: Record<string, string> = {
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    critical: 'Critical',
+  };
 
   return (
     <div>
@@ -62,7 +102,6 @@ export function AdminDashboardPage() {
           icon={FileText}
           hint="All registered complaints."
         />
-
         <SummaryMetric
           label="Open"
           value={open.length}
@@ -70,7 +109,6 @@ export function AdminDashboardPage() {
           accent="warning"
           hint="Awaiting resolution."
         />
-
         <SummaryMetric
           label="Resolved"
           value={resolved.length}
@@ -78,7 +116,6 @@ export function AdminDashboardPage() {
           accent="success"
           hint="Successfully closed."
         />
-
         <SummaryMetric
           label="Escalated"
           value={escalated.length}
@@ -100,7 +137,6 @@ export function AdminDashboardPage() {
               {unassigned.length} complaint
               {unassigned.length !== 1 ? 's' : ''} awaiting assignment
             </p>
-
             <p className="text-xs text-ink-500">
               Review and assign these complaints to the appropriate team.
             </p>
@@ -115,6 +151,119 @@ export function AdminDashboardPage() {
         </div>
       )}
 
+      {/* Search and filters */}
+      <section className="card mt-8 p-5">
+        <h2 className="mb-1 text-base font-semibold text-ink-900">
+          Search & Filter Complaints
+        </h2>
+        <p className="mb-4 text-xs text-ink-500">
+          Search by complaint ID or subject, or narrow the results by status
+          and priority.
+        </p>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div>
+            <label
+              htmlFor="dashboard-complaint-search"
+              className="mb-1.5 block text-sm font-medium text-ink-700"
+            >
+              Search
+            </label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+              <input
+                id="dashboard-complaint-search"
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Complaint ID or subject..."
+                className="w-full rounded-lg border border-ink-200 bg-white py-2 pl-9 pr-3 text-sm text-ink-900 outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-100"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="dashboard-status-filter"
+              className="mb-1.5 block text-sm font-medium text-ink-700"
+            >
+              Status
+            </label>
+            <select
+              id="dashboard-status-filter"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-100"
+            >
+              <option value="all">All statuses</option>
+              {Object.entries(statusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="dashboard-priority-filter"
+              className="mb-1.5 block text-sm font-medium text-ink-700"
+            >
+              Priority
+            </label>
+            <select
+              id="dashboard-priority-filter"
+              value={priorityFilter}
+              onChange={(event) => setPriorityFilter(event.target.value)}
+              className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-100"
+            >
+              <option value="all">All priorities</option>
+              {Object.entries(priorityLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-ink-500" aria-live="polite">
+            Showing {filteredComplaints.length} of {total} complaints
+          </p>
+
+          {(searchQuery || statusFilter !== 'all' || priorityFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('all');
+                setPriorityFilter('all');
+              }}
+              className="inline-flex items-center gap-1 text-sm font-medium text-accent-600 hover:text-accent-700"
+            >
+              <X className="h-4 w-4" />
+              Clear filters
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          {filteredComplaints.length === 0 ? (
+            <p className="rounded-lg bg-ink-50 px-4 py-8 text-center text-sm text-ink-500">
+              No complaints match your search or selected filters.
+            </p>
+          ) : (
+            <ComplaintTable
+              complaints={filteredComplaints}
+              showPriority
+              showAssignedTo
+              showEscalation
+            />
+          )}
+        </div>
+      </section>
+
       {/* Dashboard sections */}
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Recent complaints */}
@@ -123,7 +272,6 @@ export function AdminDashboardPage() {
             <h2 className="text-base font-semibold text-ink-900">
               Recent Complaints
             </h2>
-
             <Link
               to="/admin/complaints"
               className="flex items-center gap-1 text-sm font-medium text-accent-600 hover:text-accent-700"
@@ -163,17 +311,12 @@ export function AdminDashboardPage() {
                   className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50"
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink-800 group-hover:text-accent-700">
                       {c.subject}
                     </p>
-
-                    <p className="font-mono text-xs text-ink-400">
-                      {c.id}
-                    </p>
+                    <p className="font-mono text-xs text-ink-400">{c.id}</p>
                   </div>
-
                   <ArrowRight className="h-4 w-4 shrink-0 text-ink-300 group-hover:text-accent-500" />
                 </Link>
               ))
@@ -187,7 +330,6 @@ export function AdminDashboardPage() {
             <h2 className="text-base font-semibold text-ink-900">
               Escalated
             </h2>
-
             <Link
               to="/admin/escalations"
               className="flex items-center gap-1 text-sm font-medium text-accent-600 hover:text-accent-700"
@@ -209,17 +351,12 @@ export function AdminDashboardPage() {
                   className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50"
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
-
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink-800 group-hover:text-accent-700">
                       {c.subject}
                     </p>
-
-                    <p className="font-mono text-xs text-ink-400">
-                      {c.id}
-                    </p>
+                    <p className="font-mono text-xs text-ink-400">{c.id}</p>
                   </div>
-
                   <ArrowRight className="h-4 w-4 shrink-0 text-ink-300 group-hover:text-accent-500" />
                 </Link>
               ))
