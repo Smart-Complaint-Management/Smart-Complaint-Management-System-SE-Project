@@ -4,18 +4,18 @@ import { Search, ArrowRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { useRole } from '@/context/RoleContext';
+import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints } from '@/data/mockData';
 import { formatDate } from '@/services/api';
 
 export function UserTrackPage() {
-  const { user } = useRole();
+  const { session } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
 
   const myComplaints = useMemo(
-    () => mockComplaints.filter((c) => c.submittedBy === user.name),
-    [user.name],
+    () => mockComplaints.filter((c) => c.submittedBy === session?.fullName),
+    [session?.fullName],
   );
 
   const matches = useMemo(() => {

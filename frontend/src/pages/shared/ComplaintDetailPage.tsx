@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Send, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -6,22 +6,38 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useRole } from '@/context/RoleContext';
+import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
 import { formatDate, formatDateTime } from '@/services/api';
+import { submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
+import type { ComplaintStatus } from '@/types';
 
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useRole();
-  const isAdmin = user.role === 'admin';
+  const { session } = useAuth();
+  const isAdmin = session?.role === 'admin';
   const navigate = useNavigate();
 
-  const complaint = mockComplaints.find((c) => c.id === id);
+  const foundComplaint = mockComplaints.find((c) => c.id === id);
+  const complaint = foundComplaint &&
+    (isAdmin || (session && foundComplaint.submittedBy === session.fullName))
+    ? foundComplaint
+    : undefined;
   const updates = mockUpdates.filter((u) => u.complaintId === id);
 
   const [showEscalationForm, setShowEscalationForm] = useState(false);
   const [escalationReason, setEscalationReason] = useState('');
   const [escalationSubmitted, setEscalationSubmitted] = useState(false);
+  const [isSubmittingEscalation, setIsSubmittingEscalation] = useState(false);
+  const [escalationError, setEscalationError] = useState('');
+  const escalationSubmissionLock = useRef(false);
+  const [pendingStatus, setPendingStatus] = useState<ComplaintStatus | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
+
+  useEffect(() => {
+    setPendingStatus(null);
+    setStatusMessage('');
+  }, [id]);
 
   if (!complaint) {
     return (
@@ -47,9 +63,51 @@ export function ComplaintDetailPage() {
 
   const handleEscalationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (escalationReason.trim()) {
-      // Demo interaction only — no backend persistence.
-      setEscalationSubmitted(true);
+    if (escalationSubmissionLock.current) return;
+    if (!id) {
+      setEscalationError('Complaint not found.');
+      return;
+    }
+
+    escalationSubmissionLock.current = true;
+    setIsSubmittingEscalation(true);
+    setEscalationError('');
+    try {
+      const result = submitComplaintEscalation(id, escalationReason, session);
+      if (result.outcome === 'submitted') {
+        setEscalationSubmitted(true);
+      } else if (result.outcome === 'invalid_reason') {
+        setEscalationError('Please provide a reason for escalation.');
+      } else if (result.outcome === 'unauthorized') {
+        setEscalationError('Access denied. You can only escalate your own complaint.');
+      } else if (result.outcome === 'not_found') {
+        setEscalationError('Complaint not found.');
+      } else {
+        setEscalationError('This complaint has already been escalated or is no longer eligible.');
+      }
+    } finally {
+      escalationSubmissionLock.current = false;
+      setIsSubmittingEscalation(false);
+    }
+  };
+
+  const handleStatusUpdate = () => {
+    if (session?.role !== 'admin') {
+      setStatusMessage('Access denied. Only administrators can update complaint status.');
+      return;
+    }
+    if (!id || !pendingStatus) return;
+
+    const result = updateComplaintStatus(id, pendingStatus, session.fullName, session);
+    if (result.outcome === 'updated') {
+      setPendingStatus(null);
+      setStatusMessage('Complaint status updated.');
+    } else if (result.outcome === 'unchanged') {
+      setStatusMessage('Choose a different status before saving.');
+    } else if (result.outcome === 'unauthorized') {
+      setStatusMessage('Access denied. Only administrators can update complaint status.');
+    } else {
+      setStatusMessage('Complaint not found.');
     }
   };
 
@@ -76,6 +134,15 @@ export function ComplaintDetailPage() {
           </div>
         }
       />
+
+      {statusMessage && (
+        <p
+          role={statusMessage.startsWith('Access denied.') ? 'alert' : 'status'}
+          className={`mb-4 text-sm ${statusMessage.startsWith('Access denied.') ? 'text-rose-600' : 'text-ink-500'}`}
+        >
+          {statusMessage}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Main column */}
@@ -135,13 +202,29 @@ export function ComplaintDetailPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-medium text-ink-400">Update Status</label>
-                  <select className="input mt-1" defaultValue={complaint.status} aria-label="Update status">
+                  <select
+                    className="input mt-1"
+                    value={pendingStatus ?? complaint.status}
+                    onChange={(event) => {
+                      setPendingStatus(event.target.value as ComplaintStatus);
+                      setStatusMessage('');
+                    }}
+                    aria-label="Update status"
+                  >
                     <option value="submitted">Submitted</option>
                     <option value="under_review">Under Review</option>
                     <option value="in_progress">In Progress</option>
                     <option value="resolved">Resolved</option>
                     <option value="rejected">Rejected</option>
                   </select>
+                  <button
+                    type="button"
+                    className="btn btn-primary mt-2 w-full"
+                    onClick={handleStatusUpdate}
+                    disabled={!pendingStatus || pendingStatus === complaint.status}
+                  >
+                    Save Status
+                  </button>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-400">Assign To</label>
@@ -154,7 +237,7 @@ export function ComplaintDetailPage() {
                   </select>
                 </div>
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  These controls are UI affordances only. Status and assignment changes are not persisted in this demo.
+                  Status changes update the in-memory mock data and are lost after a refresh. The assignment control here is a UI affordance only.
                 </p>
               </div>
             </div>
@@ -214,16 +297,21 @@ export function ComplaintDetailPage() {
               <label className="text-xs font-medium text-ink-400">Reason for escalation</label>
               <textarea
                 value={escalationReason}
-                onChange={(e) => setEscalationReason(e.target.value)}
+                onChange={(e) => {
+                  setEscalationReason(e.target.value);
+                  setEscalationError('');
+                }}
                 placeholder="Explain why this complaint needs to be escalated..."
                 className="input mt-1 min-h-[80px] resize-y"
                 rows={3}
+                disabled={isSubmittingEscalation}
               />
+              {escalationError && <p role="alert" className="mt-2 text-sm text-rose-600">{escalationError}</p>}
               <div className="mt-3 flex gap-2">
-                <button type="submit" className="btn btn-primary flex-1" disabled={!escalationReason.trim()}>
-                  <Send className="h-4 w-4" /> Submit Request
+                <button type="submit" className="btn btn-primary flex-1" disabled={!escalationReason.trim() || isSubmittingEscalation}>
+                  <Send className="h-4 w-4" /> {isSubmittingEscalation ? 'Submitting…' : 'Submit Request'}
                 </button>
-                <button type="button" onClick={() => setShowEscalationForm(false)} className="btn btn-secondary">
+                <button type="button" onClick={() => setShowEscalationForm(false)} className="btn btn-secondary" disabled={isSubmittingEscalation}>
                   Cancel
                 </button>
               </div>
@@ -234,7 +322,7 @@ export function ComplaintDetailPage() {
             <div className="card border-emerald-200 bg-emerald-50/50 p-4">
               <p className="text-sm font-medium text-emerald-800">Escalation request submitted</p>
               <p className="mt-1 text-xs text-emerald-700">
-                Your request has been recorded (demo only). An administrator will review it.
+                Your request has been recorded in this session's mock data. An administrator can review it.
               </p>
             </div>
           )}

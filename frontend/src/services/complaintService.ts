@@ -1,5 +1,6 @@
-import { mockComplaints, mockUpdates } from '@/data/mockData';
-import type { Complaint, ComplaintCategory, ComplaintPriority } from '@/types';
+import { mockComplaints, mockUpdates, statusLabels } from '@/data/mockData';
+import type { Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus, ComplaintUpdate } from '@/types';
+import type { AuthSession } from '@/pages/auth/authContext';
 
 export interface NewComplaintInput {
   subject: string;
@@ -53,4 +54,86 @@ export async function createComplaint(input: NewComplaintInput): Promise<Complai
   });
 
   return complaint;
+}
+
+export type UpdateComplaintStatusResult =
+  | { outcome: 'updated'; update: ComplaintUpdate }
+  | { outcome: 'unchanged' }
+  | { outcome: 'not_found' }
+  | { outcome: 'unauthorized' };
+
+/** Update a complaint and append its status change to the in-memory mock timeline. */
+export function updateComplaintStatus(
+  complaintId: string,
+  status: ComplaintStatus,
+  author: string,
+  session: AuthSession | null,
+): UpdateComplaintStatusResult {
+  if (session?.role !== 'admin') return { outcome: 'unauthorized' };
+
+  const complaint = mockComplaints.find((item) => item.id === complaintId);
+  if (!complaint) return { outcome: 'not_found' };
+  if (complaint.status === status) return { outcome: 'unchanged' };
+
+  const timestamp = new Date().toISOString();
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(mockUpdates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status,
+    message: `Status changed to ${statusLabels[status]}.`,
+    author,
+    timestamp,
+  };
+
+  complaint.status = status;
+  complaint.updatedAt = timestamp;
+  mockUpdates.push(update);
+
+  return { outcome: 'updated', update };
+}
+
+export type SubmitEscalationResult =
+  | { outcome: 'submitted'; update: ComplaintUpdate }
+  | { outcome: 'invalid_reason' }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'not_found' }
+  | { outcome: 'ineligible' };
+
+/** Record an escalation in the shared in-memory complaint and timeline data. */
+export function submitComplaintEscalation(
+  complaintId: string,
+  reason: string,
+  session: AuthSession | null,
+): SubmitEscalationResult {
+  if (session?.role !== 'user') return { outcome: 'unauthorized' };
+
+  const complaint = mockComplaints.find((item) => item.id === complaintId);
+  if (!complaint) return { outcome: 'not_found' };
+  if (complaint.submittedBy !== session.fullName) return { outcome: 'unauthorized' };
+  if (
+    complaint.isEscalated ||
+    complaint.status === 'resolved' ||
+    complaint.status === 'rejected'
+  ) {
+    return { outcome: 'ineligible' };
+  }
+
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) return { outcome: 'invalid_reason' };
+
+  const timestamp = new Date().toISOString();
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(mockUpdates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status: complaint.status,
+    message: `Escalation reason: ${trimmedReason}`,
+    author: session.fullName,
+    timestamp,
+  };
+
+  complaint.isEscalated = true;
+  complaint.updatedAt = timestamp;
+  mockUpdates.push(update);
+
+  return { outcome: 'submitted', update };
 }
