@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Send, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
 import { formatDate, formatDateTime } from '@/services/api';
-import { updateComplaintStatus } from '@/services/complaintService';
+import { submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
 import type { ComplaintStatus } from '@/types';
 
 export function ComplaintDetailPage() {
@@ -28,6 +28,9 @@ export function ComplaintDetailPage() {
   const [showEscalationForm, setShowEscalationForm] = useState(false);
   const [escalationReason, setEscalationReason] = useState('');
   const [escalationSubmitted, setEscalationSubmitted] = useState(false);
+  const [isSubmittingEscalation, setIsSubmittingEscalation] = useState(false);
+  const [escalationError, setEscalationError] = useState('');
+  const escalationSubmissionLock = useRef(false);
   const [pendingStatus, setPendingStatus] = useState<ComplaintStatus | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
 
@@ -60,9 +63,31 @@ export function ComplaintDetailPage() {
 
   const handleEscalationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (escalationReason.trim()) {
-      // Demo interaction only — no backend persistence.
-      setEscalationSubmitted(true);
+    if (escalationSubmissionLock.current) return;
+    if (!id) {
+      setEscalationError('Complaint not found.');
+      return;
+    }
+
+    escalationSubmissionLock.current = true;
+    setIsSubmittingEscalation(true);
+    setEscalationError('');
+    try {
+      const result = submitComplaintEscalation(id, escalationReason, session);
+      if (result.outcome === 'submitted') {
+        setEscalationSubmitted(true);
+      } else if (result.outcome === 'invalid_reason') {
+        setEscalationError('Please provide a reason for escalation.');
+      } else if (result.outcome === 'unauthorized') {
+        setEscalationError('Access denied. You can only escalate your own complaint.');
+      } else if (result.outcome === 'not_found') {
+        setEscalationError('Complaint not found.');
+      } else {
+        setEscalationError('This complaint has already been escalated or is no longer eligible.');
+      }
+    } finally {
+      escalationSubmissionLock.current = false;
+      setIsSubmittingEscalation(false);
     }
   };
 
@@ -272,16 +297,21 @@ export function ComplaintDetailPage() {
               <label className="text-xs font-medium text-ink-400">Reason for escalation</label>
               <textarea
                 value={escalationReason}
-                onChange={(e) => setEscalationReason(e.target.value)}
+                onChange={(e) => {
+                  setEscalationReason(e.target.value);
+                  setEscalationError('');
+                }}
                 placeholder="Explain why this complaint needs to be escalated..."
                 className="input mt-1 min-h-[80px] resize-y"
                 rows={3}
+                disabled={isSubmittingEscalation}
               />
+              {escalationError && <p role="alert" className="mt-2 text-sm text-rose-600">{escalationError}</p>}
               <div className="mt-3 flex gap-2">
-                <button type="submit" className="btn btn-primary flex-1" disabled={!escalationReason.trim()}>
-                  <Send className="h-4 w-4" /> Submit Request
+                <button type="submit" className="btn btn-primary flex-1" disabled={!escalationReason.trim() || isSubmittingEscalation}>
+                  <Send className="h-4 w-4" /> {isSubmittingEscalation ? 'Submitting…' : 'Submit Request'}
                 </button>
-                <button type="button" onClick={() => setShowEscalationForm(false)} className="btn btn-secondary">
+                <button type="button" onClick={() => setShowEscalationForm(false)} className="btn btn-secondary" disabled={isSubmittingEscalation}>
                   Cancel
                 </button>
               </div>
@@ -292,7 +322,7 @@ export function ComplaintDetailPage() {
             <div className="card border-emerald-200 bg-emerald-50/50 p-4">
               <p className="text-sm font-medium text-emerald-800">Escalation request submitted</p>
               <p className="mt-1 text-xs text-emerald-700">
-                Your request has been recorded (demo only). An administrator will review it.
+                Your request has been recorded in this session's mock data. An administrator can review it.
               </p>
             </div>
           )}

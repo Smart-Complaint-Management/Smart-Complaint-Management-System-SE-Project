@@ -91,3 +91,49 @@ export function updateComplaintStatus(
 
   return { outcome: 'updated', update };
 }
+
+export type SubmitEscalationResult =
+  | { outcome: 'submitted'; update: ComplaintUpdate }
+  | { outcome: 'invalid_reason' }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'not_found' }
+  | { outcome: 'ineligible' };
+
+/** Record an escalation in the shared in-memory complaint and timeline data. */
+export function submitComplaintEscalation(
+  complaintId: string,
+  reason: string,
+  session: AuthSession | null,
+): SubmitEscalationResult {
+  if (session?.role !== 'user') return { outcome: 'unauthorized' };
+
+  const complaint = mockComplaints.find((item) => item.id === complaintId);
+  if (!complaint) return { outcome: 'not_found' };
+  if (complaint.submittedBy !== session.fullName) return { outcome: 'unauthorized' };
+  if (
+    complaint.isEscalated ||
+    complaint.status === 'resolved' ||
+    complaint.status === 'rejected'
+  ) {
+    return { outcome: 'ineligible' };
+  }
+
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) return { outcome: 'invalid_reason' };
+
+  const timestamp = new Date().toISOString();
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(mockUpdates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status: complaint.status,
+    message: `Escalation reason: ${trimmedReason}`,
+    author: session.fullName,
+    timestamp,
+  };
+
+  complaint.isEscalated = true;
+  complaint.updatedAt = timestamp;
+  mockUpdates.push(update);
+
+  return { outcome: 'submitted', update };
+}
