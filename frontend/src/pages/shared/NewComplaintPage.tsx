@@ -1,4 +1,3 @@
-```tsx
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
