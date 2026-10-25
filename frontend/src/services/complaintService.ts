@@ -34,8 +34,21 @@ const PRIORITY_LEVELS: ComplaintPriority[] = [
 ];
 
 /**
- * Assign a priority automatically from the complaint's subject,
- * description and category.
+ * Safely checks whether browser storage is available.
+ */
+function isBrowser(): boolean {
+  return typeof window !== 'undefined';
+}
+
+/**
+ * Assign priority using transparent, rule-based classification.
+ *
+ * Critical: immediate safety risks or emergencies.
+ * High: urgent incidents requiring prompt attention.
+ * Medium: recurring or disruptive problems.
+ * Low: ordinary requests and minor issues.
+ *
+ * This is a heuristic classifier, not a trained ML model.
  */
 export function classifyComplaintPriority(
   subject: string,
@@ -48,23 +61,31 @@ export function classifyComplaintPriority(
     'emergency',
     'life threatening',
     'life-threatening',
+    'immediate danger',
     'fire',
+    'explosion',
     'electric shock',
     'serious crime',
-    'immediate danger',
-    'critical safety',
+    'physical assault',
+    'sexual assault',
+    'severe injury',
+    'weapon',
   ];
 
   const highKeywords = [
     'urgent',
-    'danger',
     'unsafe',
     'harassment',
     'security breach',
+    'danger',
     'severe',
-    'not working',
-    'equipment damage',
     'injury',
+    'water leakage',
+    'power outage',
+    'server down',
+    'network down',
+    'not working',
+    'cannot access',
   ];
 
   const mediumKeywords = [
@@ -96,14 +117,24 @@ export function classifyComplaintPriority(
 }
 
 /**
- * Read persisted complaints, falling back to the existing mock data.
+ * Load complaints from localStorage.
+ *
+ * Existing mock records are used when no saved records exist.
  */
 function readComplaints(): Complaint[] {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+  if (!isBrowser()) {
+    return mockComplaints;
+  }
 
-    if (saved) {
-      return JSON.parse(saved) as Complaint[];
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+
+    if (saved !== null) {
+      const parsed: unknown = JSON.parse(saved);
+
+      if (Array.isArray(parsed)) {
+        return parsed as Complaint[];
+      }
     }
   } catch (error) {
     console.error('Unable to load saved complaints:', error);
@@ -113,22 +144,44 @@ function readComplaints(): Complaint[] {
 }
 
 /**
- * Save complaint records to browser storage.
+ * Persist complaints in browser storage.
  */
 function saveComplaints(complaints: Complaint[]): void {
+  if (!isBrowser()) {
+    return;
+  }
+
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(complaints));
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(complaints),
+    );
   } catch (error) {
     console.error('Unable to save complaints:', error);
+
+    throw new Error(
+      'Could not persist complaints in browser storage.',
+    );
   }
 }
 
+/**
+ * Load complaint timeline updates.
+ */
 function readUpdates(): ComplaintUpdate[] {
-  try {
-    const saved = localStorage.getItem(UPDATES_STORAGE_KEY);
+  if (!isBrowser()) {
+    return mockUpdates;
+  }
 
-    if (saved) {
-      return JSON.parse(saved) as ComplaintUpdate[];
+  try {
+    const saved = window.localStorage.getItem(UPDATES_STORAGE_KEY);
+
+    if (saved !== null) {
+      const parsed: unknown = JSON.parse(saved);
+
+      if (Array.isArray(parsed)) {
+        return parsed as ComplaintUpdate[];
+      }
     }
   } catch (error) {
     console.error('Unable to load complaint updates:', error);
@@ -137,46 +190,71 @@ function readUpdates(): ComplaintUpdate[] {
   return mockUpdates;
 }
 
+/**
+ * Persist complaint timeline updates.
+ */
 function saveUpdates(updates: ComplaintUpdate[]): void {
+  if (!isBrowser()) {
+    return;
+  }
+
   try {
-    localStorage.setItem(UPDATES_STORAGE_KEY, JSON.stringify(updates));
+    window.localStorage.setItem(
+      UPDATES_STORAGE_KEY,
+      JSON.stringify(updates),
+    );
   } catch (error) {
     console.error('Unable to save complaint updates:', error);
+
+    throw new Error(
+      'Could not persist complaint updates in browser storage.',
+    );
   }
 }
 
+/**
+ * Generate a complaint ID using the current year and existing IDs.
+ */
 function nextComplaintId(): string {
   const year = new Date().getFullYear();
 
-  const complaints = readComplaints();
-
-  const highest = complaints.reduce((max, complaint) => {
+  const highest = readComplaints().reduce((max, complaint) => {
     const match = /^CMP-\d{4}-(\d+)$/.exec(complaint.id);
 
-    return match ? Math.max(max, Number(match[1])) : max;
+    return match
+      ? Math.max(max, Number(match[1]))
+      : max;
   }, 0);
 
   return `CMP-${year}-${String(highest + 1).padStart(3, '0')}`;
 }
 
+/**
+ * Create a complaint and persist the assigned priority.
+ */
 export async function createComplaint(
   input: NewComplaintInput,
 ): Promise<Complaint> {
   await new Promise((resolve) => setTimeout(resolve, 100));
 
+  const subject = input.subject.trim();
+  const description = input.description.trim();
+
+  const priority = classifyComplaintPriority(
+    subject,
+    description,
+    input.category,
+  );
+
   const now = new Date().toISOString();
 
   const complaint: Complaint = {
     id: nextComplaintId(),
-    subject: input.subject.trim(),
-    description: input.description.trim(),
+    subject,
+    description,
     category: input.category,
     status: 'submitted',
-    priority: classifyComplaintPriority(
-      input.subject,
-      input.description,
-      input.category,
-    ),
+    priority,
     submittedBy: input.submittedBy,
     assignedTo: null,
     submittedAt: now,
@@ -206,6 +284,38 @@ export async function createComplaint(
   return complaint;
 }
 
+/**
+ * Return all complaints.
+ */
+export function getComplaints(): Complaint[] {
+  return readComplaints();
+}
+
+/**
+ * Return complaints belonging to the authenticated user.
+ */
+export function getMyComplaints(
+  session: AuthSession | null,
+): Complaint[] {
+  if (session?.role !== 'user') {
+    return [];
+  }
+
+  return readComplaints().filter(
+    (complaint) => complaint.submittedBy === session.fullName,
+  );
+}
+
+/**
+ * Return the predefined priority levels.
+ */
+export function getPriorityLevels(): ComplaintPriority[] {
+  return [...PRIORITY_LEVELS];
+}
+
+/**
+ * Search complaints across relevant fields.
+ */
 export function searchComplaints(
   query: string,
   complaints: Complaint[] = readComplaints(),
@@ -216,8 +326,8 @@ export function searchComplaints(
     return complaints;
   }
 
-  return complaints.filter((complaint) =>
-    [
+  return complaints.filter((complaint) => {
+    const fields = [
       complaint.id,
       complaint.subject,
       complaint.description,
@@ -226,8 +336,12 @@ export function searchComplaints(
       complaint.category,
       complaint.status,
       complaint.priority,
-    ].some((value) => value.toLowerCase().includes(normalizedQuery)),
-  );
+    ];
+
+    return fields.some((field) =>
+      field.toLowerCase().includes(normalizedQuery),
+    );
+  });
 }
 
 export interface ComplaintFilters {
@@ -236,8 +350,12 @@ export interface ComplaintFilters {
   status?: ComplaintStatus | 'all';
   priority?: ComplaintPriority | 'all';
   submittedBy?: string;
+  assignedTo?: string | 'unassigned';
 }
 
+/**
+ * Filter complaints using multiple criteria simultaneously.
+ */
 export function filterComplaints(
   filters: ComplaintFilters,
   complaints: Complaint[] = readComplaints(),
@@ -245,18 +363,22 @@ export function filterComplaints(
   const query = filters.query?.trim().toLowerCase() ?? '';
 
   return complaints.filter((complaint) => {
+    const searchableFields = [
+      complaint.id,
+      complaint.subject,
+      complaint.description,
+      complaint.submittedBy,
+      complaint.assignedTo ?? '',
+      complaint.category,
+      complaint.status,
+      complaint.priority,
+    ];
+
     const matchesQuery =
-      !query ||
-      [
-        complaint.id,
-        complaint.subject,
-        complaint.description,
-        complaint.submittedBy,
-        complaint.assignedTo ?? '',
-        complaint.category,
-        complaint.status,
-        complaint.priority,
-      ].some((value) => value.toLowerCase().includes(query));
+      query === '' ||
+      searchableFields.some((field) =>
+        field.toLowerCase().includes(query),
+      );
 
     const matchesCategory =
       !filters.category ||
@@ -277,32 +399,21 @@ export function filterComplaints(
       !filters.submittedBy ||
       complaint.submittedBy === filters.submittedBy;
 
+    const matchesAssignee =
+      filters.assignedTo === undefined ||
+      (filters.assignedTo === 'unassigned'
+        ? complaint.assignedTo === null
+        : complaint.assignedTo === filters.assignedTo);
+
     return (
       matchesQuery &&
       matchesCategory &&
       matchesStatus &&
       matchesPriority &&
-      matchesUser
+      matchesUser &&
+      matchesAssignee
     );
   });
-}
-
-export function getComplaints(): Complaint[] {
-  return readComplaints();
-}
-
-export function getMyComplaints(session: AuthSession | null): Complaint[] {
-  if (session?.role !== 'user') {
-    return [];
-  }
-
-  return readComplaints().filter(
-    (complaint) => complaint.submittedBy === session.fullName,
-  );
-}
-
-export function getPriorityLevels(): ComplaintPriority[] {
-  return [...PRIORITY_LEVELS];
 }
 
 export type UpdateComplaintStatusResult =
@@ -311,6 +422,9 @@ export type UpdateComplaintStatusResult =
   | { outcome: 'not_found' }
   | { outcome: 'unauthorized' };
 
+/**
+ * Update complaint status and append a timeline entry.
+ */
 export function updateComplaintStatus(
   complaintId: string,
   status: ComplaintStatus,
@@ -322,7 +436,10 @@ export function updateComplaintStatus(
   }
 
   const complaints = readComplaints();
-  const complaint = complaints.find((item) => item.id === complaintId);
+
+  const complaint = complaints.find(
+    (item) => item.id === complaintId,
+  );
 
   if (!complaint) {
     return { outcome: 'not_found' };
@@ -334,8 +451,10 @@ export function updateComplaintStatus(
 
   const timestamp = new Date().toISOString();
 
+  const updates = readUpdates();
+
   const update: ComplaintUpdate = {
-    id: `UPD-${String(readUpdates().length + 1).padStart(3, '0')}`,
+    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
     complaintId,
     status,
     message: `Status changed to ${statusLabels[status]}.`,
@@ -348,7 +467,6 @@ export function updateComplaintStatus(
 
   saveComplaints(complaints);
 
-  const updates = readUpdates();
   updates.push(update);
   saveUpdates(updates);
 
@@ -362,6 +480,9 @@ export type SubmitEscalationResult =
   | { outcome: 'not_found' }
   | { outcome: 'ineligible' };
 
+/**
+ * Record an escalation for a complaint owned by the current user.
+ */
 export function submitComplaintEscalation(
   complaintId: string,
   reason: string,
@@ -373,7 +494,9 @@ export function submitComplaintEscalation(
 
   const complaints = readComplaints();
 
-  const complaint = complaints.find((item) => item.id === complaintId);
+  const complaint = complaints.find(
+    (item) => item.id === complaintId,
+  );
 
   if (!complaint) {
     return { outcome: 'not_found' };
