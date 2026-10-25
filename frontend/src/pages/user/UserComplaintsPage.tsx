@@ -1,4 +1,3 @@
-```tsx
 import { useMemo, useState } from 'react';
 import { Search, Filter, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
