@@ -13,11 +13,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ComplaintTable } from '@/components/ui/ComplaintTable';
 
 import {
-  mockComplaints,
   categoryLabels,
   statusLabels,
   priorityLabels,
 } from '@/data/mockData';
+
+import { getComplaints } from '@/services/complaintService';
+import type { Complaint } from '@/types';
 
 const categoryOptions: FilterOption[] = [
   { value: 'all', label: 'All Categories' },
@@ -56,12 +58,14 @@ export function AdminAllComplaintsPage() {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [assignmentFilter, setAssignmentFilter] = useState('all');
 
+  // Read saved complaints when this page renders.
+  const complaints: Complaint[] = getComplaints();
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return mockComplaints.filter((complaint) => {
-      // Search across complaint details and administrative attributes.
-      const searchableFields = [
+    return complaints.filter((complaint) => {
+      const fields = [
         complaint.id,
         complaint.subject,
         complaint.description,
@@ -77,7 +81,7 @@ export function AdminAllComplaintsPage() {
 
       const matchesSearch =
         query === '' ||
-        searchableFields.some((field) =>
+        fields.some((field) =>
           field.toLowerCase().includes(query),
         );
 
@@ -109,6 +113,7 @@ export function AdminAllComplaintsPage() {
       );
     });
   }, [
+    complaints,
     search,
     categoryFilter,
     statusFilter,
@@ -123,7 +128,7 @@ export function AdminAllComplaintsPage() {
     priorityFilter !== 'all' ||
     assignmentFilter !== 'all';
 
-  function resetFilters() {
+  function clearFilters() {
     setSearch('');
     setCategoryFilter('all');
     setStatusFilter('all');
@@ -189,6 +194,17 @@ export function AdminAllComplaintsPage() {
                 ? 'No complaints match your search and selected filters. Try changing your search or clearing the filters.'
                 : 'There are currently no complaints to display.'
             }
+            action={
+              hasActiveFilters ? (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="btn btn-secondary"
+                >
+                  Clear filters
+                </button>
+              ) : undefined
+            }
           />
         ) : (
           <>
@@ -204,7 +220,7 @@ export function AdminAllComplaintsPage() {
               {hasActiveFilters && (
                 <button
                   type="button"
-                  onClick={resetFilters}
+                  onClick={clearFilters}
                   className="font-medium text-accent-600 hover:underline"
                 >
                   Clear filters
