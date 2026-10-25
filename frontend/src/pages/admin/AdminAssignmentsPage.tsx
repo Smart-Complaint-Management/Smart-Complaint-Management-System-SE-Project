@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { mockComplaints } from '@/data/mockData';
 import { formatDate } from '@/services/api';
+import type { Complaint } from '@/types';
 
 const ASSIGNEES = [
   'IT Support Desk',
@@ -21,14 +22,31 @@ const ASSIGNMENTS_STORAGE_KEY = 'scms-complaint-assignments';
 const AUDIT_STORAGE_KEY = 'scms-assignment-audit';
 
 type AuditEntry = {
+  id: string;
   complaintId: string;
   action: 'ASSIGNED' | 'REASSIGNED';
   previousTeam: string | null;
   newTeam: string;
   timestamp: string;
+  performedBy: string;
 };
 
-function loadSavedComplaints() {
+function createAuditId(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+
+  return (
+    Date.now().toString(36) +
+    '-' +
+    Math.random().toString(36).slice(2)
+  );
+}
+
+function loadSavedComplaints(): Complaint[] {
   try {
     const saved = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
 
@@ -36,7 +54,7 @@ function loadSavedComplaints() {
       const parsed: unknown = JSON.parse(saved);
 
       if (Array.isArray(parsed)) {
-        return parsed;
+        return parsed as Complaint[];
       }
     }
   } catch (error) {
@@ -46,17 +64,73 @@ function loadSavedComplaints() {
   return mockComplaints.map((complaint) => ({ ...complaint }));
 }
 
+function loadAuditEntries(): AuditEntry[] {
+  try {
+    const saved = localStorage.getItem(AUDIT_STORAGE_KEY);
+    const parsed: unknown = saved ? JSON.parse(saved) : [];
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter(
+        (entry): entry is Record<string, unknown> =>
+          typeof entry === 'object' && entry !== null,
+      )
+      .map((entry) => ({
+        id:
+          typeof entry.id === 'string'
+            ? entry.id
+            : createAuditId(),
+        complaintId:
+          typeof entry.complaintId === 'string'
+            ? entry.complaintId
+            : 'Unknown',
+        action:
+          entry.action === 'REASSIGNED'
+            ? 'REASSIGNED' as const
+            : 'ASSIGNED' as const,
+        previousTeam:
+          typeof entry.previousTeam === 'string'
+            ? entry.previousTeam
+            : null,
+        newTeam:
+          typeof entry.newTeam === 'string'
+            ? entry.newTeam
+            : 'Unknown',
+        timestamp:
+          typeof entry.timestamp === 'string'
+            ? entry.timestamp
+            : new Date().toISOString(),
+        performedBy:
+          typeof entry.performedBy === 'string'
+            ? entry.performedBy
+            : 'Unknown administrator',
+      }));
+  } catch (error) {
+    console.error('Could not load assignment history:', error);
+    return [];
+  }
+}
+
 export function AdminAssignmentsPage() {
-  const [complaints, setComplaints] = useState(loadSavedComplaints);
-  const [selectedTeams, setSelectedTeams] = useState<Record<string, string>>({});
+  const [complaints, setComplaints] =
+    useState<Complaint[]>(loadSavedComplaints);
+
+  const [selectedTeams, setSelectedTeams] =
+    useState<Record<string, string>>({});
+
   const [message, setMessage] = useState('');
+  const [auditEntries, setAuditEntries] =
+    useState<AuditEntry[]>(loadAuditEntries);
 
   const unassigned = complaints.filter(
-    (complaint) => complaint.assignedTo === null
+    (complaint) => !complaint.assignedTo,
   );
 
   const assigned = complaints.filter(
-    (complaint) => complaint.assignedTo !== null
+    (complaint) => Boolean(complaint.assignedTo),
   );
 
   function handleTeamChange(complaintId: string, team: string) {
@@ -77,7 +151,7 @@ export function AdminAssignmentsPage() {
     }
 
     const complaint = complaints.find(
-      (item) => item.id === complaintId
+      (item) => item.id === complaintId,
     );
 
     if (!complaint) {
@@ -85,44 +159,49 @@ export function AdminAssignmentsPage() {
       return;
     }
 
+    if (complaint.assignedTo === team) {
+      setMessage('This complaint is already assigned to that team.');
+      return;
+    }
+
     const previousTeam = complaint.assignedTo;
 
     const updatedComplaints = complaints.map((item) =>
       item.id === complaintId
-        ? { ...item, assignedTo: team }
-        : item
+        ? {
+            ...item,
+            assignedTo: team,
+            updatedAt: new Date().toISOString(),
+          }
+        : item,
     );
 
     const auditEntry: AuditEntry = {
+      id: createAuditId(),
       complaintId,
       action: previousTeam ? 'REASSIGNED' : 'ASSIGNED',
       previousTeam,
       newTeam: team,
       timestamp: new Date().toISOString(),
+      performedBy: 'Admin (demo mode)',
     };
 
     try {
-      const savedAudit = localStorage.getItem(AUDIT_STORAGE_KEY);
-      const parsedAudit: unknown = savedAudit
-        ? JSON.parse(savedAudit)
-        : [];
+      const updatedAudit = [...auditEntries, auditEntry];
 
-      const existingAudit: AuditEntry[] = Array.isArray(parsedAudit)
-        ? parsedAudit
-        : [];
-
-      // Save both records before updating the page.
+      // Persist both records before changing the displayed state.
       localStorage.setItem(
         ASSIGNMENTS_STORAGE_KEY,
-        JSON.stringify(updatedComplaints)
+        JSON.stringify(updatedComplaints),
       );
 
       localStorage.setItem(
         AUDIT_STORAGE_KEY,
-        JSON.stringify([...existingAudit, auditEntry])
+        JSON.stringify(updatedAudit),
       );
 
       setComplaints(updatedComplaints);
+      setAuditEntries(updatedAudit);
 
       setSelectedTeams((previous) => {
         const updated = { ...previous };
@@ -133,12 +212,12 @@ export function AdminAssignmentsPage() {
       setMessage(
         previousTeam
           ? 'Complaint reassigned successfully.'
-          : 'Complaint assigned successfully.'
+          : 'Complaint assigned successfully.',
       );
     } catch (error) {
-      console.error('Could not save assignment:', error);
+      console.error('Could not save assignment or audit history:', error);
       setMessage(
-        'Could not save the assignment. Check your browser storage and try again.'
+        'Could not save the assignment. Check browser storage and try again.',
       );
     }
   }
@@ -335,31 +414,26 @@ export function AdminAssignmentsPage() {
           Recent Assignment Activity
         </h2>
 
-        <AssignmentAuditHistory />
+        <AssignmentAuditHistory auditEntries={auditEntries} />
       </section>
 
       <p className="mt-4 text-xs text-ink-400">
         Demo mode: assignments and audit history are saved in this browser.
-        They are not yet stored in a shared database.
+        They are not stored in a shared database. Browser-stored audit entries
+        can be modified or deleted and are not tamper-proof security records.
       </p>
     </div>
   );
 }
 
-function AssignmentAuditHistory() {
-  const [auditEntries] = useState<AuditEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem(AUDIT_STORAGE_KEY);
-      const parsed: unknown = saved ? JSON.parse(saved) : [];
+function AssignmentAuditHistory({
+  auditEntries,
+}: {
+  auditEntries: AuditEntry[];
+}) {
+  const recentEntries = [...auditEntries].reverse();
 
-      return Array.isArray(parsed) ? parsed.reverse() : [];
-    } catch (error) {
-      console.error('Could not load assignment history:', error);
-      return [];
-    }
-  });
-
-  if (auditEntries.length === 0) {
+  if (recentEntries.length === 0) {
     return (
       <p className="text-sm text-ink-500">
         No assignment activity recorded yet. Assign or reassign a complaint
@@ -370,9 +444,9 @@ function AssignmentAuditHistory() {
 
   return (
     <div className="space-y-3">
-      {auditEntries.map((entry, index) => (
+      {recentEntries.map((entry) => (
         <div
-          key={entry.complaintId + '-' + entry.timestamp + '-' + index}
+          key={entry.id}
           className="border-b border-ink-100 pb-3 last:border-0 last:pb-0"
         >
           <p className="text-sm font-medium text-ink-800">
@@ -387,7 +461,13 @@ function AssignmentAuditHistory() {
           </p>
 
           <p className="mt-1 text-xs text-ink-400">
+            Record ID: {entry.id}
+          </p>
+
+          <p className="mt-1 text-xs text-ink-400">
             {new Date(entry.timestamp).toLocaleString()}
+            {' · '}
+            {entry.performedBy}
           </p>
         </div>
       ))}
