@@ -542,4 +542,3 @@ export function submitComplaintEscalation(
 
   return { outcome: 'submitted', update };
 }
-```
