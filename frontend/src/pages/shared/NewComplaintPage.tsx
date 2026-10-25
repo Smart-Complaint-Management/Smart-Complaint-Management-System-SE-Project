@@ -487,4 +487,3 @@ export function NewComplaintPage() {
     </div>
   );
 }
-```
