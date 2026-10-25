@@ -1,4 +1,3 @@
-```typescript
 import {
   mockComplaints,
   mockUpdates,
