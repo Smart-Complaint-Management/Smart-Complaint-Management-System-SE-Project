@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Search, Filter, X } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../auth/authContext';
 import {
   categoryLabels,
   statusLabels,
