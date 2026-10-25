@@ -6,7 +6,7 @@ import { SearchInput } from '@/components/ui/SearchInput';
 import { FilterControl, FilterBar, type FilterOption } from '@/components/ui/FilterControl';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ComplaintTable } from '@/components/ui/ComplaintTable';
-import { useRole } from '@/context/RoleContext';
+import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints, categoryLabels, statusLabels } from '@/data/mockData';
 import type { ComplaintCategory, ComplaintStatus } from '@/types';
 
@@ -21,14 +21,14 @@ const statusOptions: FilterOption[] = [
 ];
 
 export function UserComplaintsPage() {
-  const { user } = useRole();
+  const { session } = useAuth();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
   const myComplaints = useMemo(
-    () => mockComplaints.filter((c) => c.submittedBy === user.name),
-    [user.name],
+    () => mockComplaints.filter((c) => c.submittedBy === session?.fullName),
+    [session?.fullName],
   );
 
   const filtered = useMemo(() => {

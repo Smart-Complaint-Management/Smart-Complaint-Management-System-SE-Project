@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { categoryLabels } from '@/data/mockData';
-import { useRole } from '@/context/RoleContext';
+import { useAuth } from '@/pages/auth/authContext';
 import { createComplaint } from '@/services/complaintService';
 import { DESCRIPTION_MAX, SUBJECT_MAX, validateComplaint } from './validateComplaint';
 import type { ComplaintFormErrors, ComplaintFormValues } from './validateComplaint';
@@ -28,7 +28,7 @@ const EMPTY_FORM: ComplaintFormValues = {
 
 export function NewComplaintPage() {
   const navigate = useNavigate();
-  const { user } = useRole();
+  const { session } = useAuth();
   const [form, setForm] = useState<ComplaintFormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<ComplaintFormErrors>({});
   const [submitError, setSubmitError] = useState('');
@@ -41,6 +41,10 @@ export function NewComplaintPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitError('');
+    if (!session) {
+      setSubmitError('Please sign in again before submitting a complaint.');
+      return;
+    }
     const found = validateComplaint(form);
     setErrors(found);
     if (Object.keys(found).length > 0 || form.category === '') return;
@@ -52,7 +56,7 @@ export function NewComplaintPage() {
         category: form.category,
         priority: form.priority,
         description: form.description,
-        submittedBy: user.name,
+        submittedBy: session.fullName,
       });
       setCreatedId(created.id);
     } catch {
