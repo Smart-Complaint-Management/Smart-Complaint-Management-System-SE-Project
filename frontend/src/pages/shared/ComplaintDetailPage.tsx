@@ -6,7 +6,6 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useRole } from '@/context/RoleContext';
 import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
 import { formatDate, formatDateTime } from '@/services/api';
@@ -15,9 +14,8 @@ import type { ComplaintStatus } from '@/types';
 
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useRole();
   const { session } = useAuth();
-  const isAdmin = user.role === 'admin';
+  const isAdmin = session?.role === 'admin';
   const navigate = useNavigate();
 
   const foundComplaint = mockComplaints.find((c) => c.id === id);
@@ -69,14 +67,20 @@ export function ComplaintDetailPage() {
   };
 
   const handleStatusUpdate = () => {
+    if (session?.role !== 'admin') {
+      setStatusMessage('Access denied. Only administrators can update complaint status.');
+      return;
+    }
     if (!id || !pendingStatus) return;
 
-    const result = updateComplaintStatus(id, pendingStatus, user.name);
+    const result = updateComplaintStatus(id, pendingStatus, session.fullName, session);
     if (result.outcome === 'updated') {
       setPendingStatus(null);
       setStatusMessage('Complaint status updated.');
     } else if (result.outcome === 'unchanged') {
       setStatusMessage('Choose a different status before saving.');
+    } else if (result.outcome === 'unauthorized') {
+      setStatusMessage('Access denied. Only administrators can update complaint status.');
     } else {
       setStatusMessage('Complaint not found.');
     }
@@ -105,6 +109,15 @@ export function ComplaintDetailPage() {
           </div>
         }
       />
+
+      {statusMessage && (
+        <p
+          role={statusMessage.startsWith('Access denied.') ? 'alert' : 'status'}
+          className={`mb-4 text-sm ${statusMessage.startsWith('Access denied.') ? 'text-rose-600' : 'text-ink-500'}`}
+        >
+          {statusMessage}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Main column */}
@@ -187,11 +200,6 @@ export function ComplaintDetailPage() {
                   >
                     Save Status
                   </button>
-                  {statusMessage && (
-                    <p role="status" className="mt-2 text-xs text-ink-500">
-                      {statusMessage}
-                    </p>
-                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-ink-400">Assign To</label>

@@ -1,5 +1,6 @@
 import { mockComplaints, mockUpdates, statusLabels } from '@/data/mockData';
 import type { Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus, ComplaintUpdate } from '@/types';
+import type { AuthSession } from '@/pages/auth/authContext';
 
 export interface NewComplaintInput {
   subject: string;
@@ -58,14 +59,18 @@ export async function createComplaint(input: NewComplaintInput): Promise<Complai
 export type UpdateComplaintStatusResult =
   | { outcome: 'updated'; update: ComplaintUpdate }
   | { outcome: 'unchanged' }
-  | { outcome: 'not_found' };
+  | { outcome: 'not_found' }
+  | { outcome: 'unauthorized' };
 
 /** Update a complaint and append its status change to the in-memory mock timeline. */
 export function updateComplaintStatus(
   complaintId: string,
   status: ComplaintStatus,
   author: string,
+  session: AuthSession | null,
 ): UpdateComplaintStatusResult {
+  if (session?.role !== 'admin') return { outcome: 'unauthorized' };
+
   const complaint = mockComplaints.find((item) => item.id === complaintId);
   if (!complaint) return { outcome: 'not_found' };
   if (complaint.status === status) return { outcome: 'unchanged' };
