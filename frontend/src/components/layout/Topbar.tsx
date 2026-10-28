@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Bell, Menu, X, User as UserIcon, Shield } from 'lucide-react';
 import { useRole } from '@/context/RoleContext';
 

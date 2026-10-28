@@ -13,8 +13,6 @@ export function ApplicationShell({ children }: ApplicationShellProps) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isAdmin = user.role === 'admin';
-
   // Close sidebar on route change (mobile)
   useEffect(() => {
     setSidebarOpen(false);

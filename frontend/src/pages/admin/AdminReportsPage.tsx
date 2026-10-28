@@ -40,7 +40,7 @@ export function AdminReportsPage() {
     ];
     const escapeCsv = (value: string | number | boolean | null) => {
       const text = value == null ? '' : String(value);
-      return `"${text.replaceAll('"', '""')}"`;
+      return `"${text.replace(/"/g, '""')}"`;
     };
     const csv = [
       columns.map(({ label }) => escapeCsv(label)).join(','),

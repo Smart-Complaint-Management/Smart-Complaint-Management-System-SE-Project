@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, AlertTriangle, Send, Plus } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Send } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
@@ -8,7 +8,7 @@ import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/pages/auth/authContext';
 import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
-import { formatDate, formatDateTime } from '@/services/api';
+import { formatDateTime } from '@/services/api';
 import { submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
 import type { ComplaintStatus } from '@/types';
 
