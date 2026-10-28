@@ -1,14 +1,17 @@
 
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   BarChart3,
+  Download,
   FileText,
   Clock,
   CheckCircle2,
   AlertTriangle,
   TrendingUp,
   Users,
+  RefreshCw,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -17,8 +20,41 @@ import { getAdminComplaints } from '@/data/adminComplaintData';
 import { categoryLabels, statusLabels } from '@/data/mockData';
 
 export function AdminReportsPage() {
-  // Read the saved complaint data, including team assignments.
-  const complaints = getAdminComplaints();
+  // Read saved complaints on mount, and again when the admin refreshes.
+  const [complaints, setComplaints] = useState(getAdminComplaints);
+
+  const downloadCsv = () => {
+    const columns: Array<{ label: string; value: (complaint: (typeof complaints)[number]) => string | number | boolean | null }> = [
+      { label: 'ID', value: (c) => c.id },
+      { label: 'Subject', value: (c) => c.subject },
+      { label: 'Description', value: (c) => c.description },
+      { label: 'Category', value: (c) => categoryLabels[c.category] ?? c.category },
+      { label: 'Status', value: (c) => statusLabels[c.status] ?? c.status },
+      { label: 'Priority', value: (c) => c.priority },
+      { label: 'Submitted By', value: (c) => c.submittedBy },
+      { label: 'Assigned To', value: (c) => c.assignedTo },
+      { label: 'Submitted At', value: (c) => c.submittedAt },
+      { label: 'Updated At', value: (c) => c.updatedAt },
+      { label: 'Escalated', value: (c) => c.isEscalated },
+      { label: 'Possible Duplicate ID', value: (c) => c.possibleDuplicateId },
+    ];
+    const escapeCsv = (value: string | number | boolean | null) => {
+      const text = value == null ? '' : String(value);
+      return `"${text.replaceAll('"', '""')}"`;
+    };
+    const csv = [
+      columns.map(({ label }) => escapeCsv(label)).join(','),
+      ...complaints.map((complaint) =>
+        columns.map(({ value }) => escapeCsv(value(complaint))).join(','),
+      ),
+    ].join('\r\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'complaint-reports.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const total = complaints.length;
   const resolved = complaints.filter((c) => c.status === 'resolved');
@@ -116,6 +152,24 @@ export function AdminReportsPage() {
       <PageHeader
         title="Reports & Analytics"
         description="Summary of complaint activity, category distribution, team assignments, and status breakdown."
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setComplaints(getAdminComplaints())}
+              className="btn btn-secondary inline-flex items-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </button>
+            <button
+              type="button"
+              onClick={downloadCsv}
+              className="btn btn-primary inline-flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" /> Download CSV
+            </button>
+          </>
+        }
       />
 
       <p className="mb-5 text-xs text-ink-400">
