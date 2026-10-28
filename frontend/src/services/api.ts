@@ -22,8 +22,8 @@ import { mockComplaints, mockNotifications, mockUpdates } from '@/data/mockData'
 
 // Replace this default with the agreed Flask base URL when the backend is live.
 const API_BASE_URL =
-  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ??
-  'http://localhost:5000/api';
+  import.meta.env.VITE_API_BASE_URL ??
+  (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
 
 // Set this to true once the Flask backend is available and the endpoint shapes
 // below match the agreed contract. Until then the mock implementation is used.

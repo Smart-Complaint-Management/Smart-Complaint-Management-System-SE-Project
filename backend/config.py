@@ -11,6 +11,7 @@ class Config:
     DB_NAME = os.getenv("DB_NAME", "smart_complaint_db")
     DB_USER = os.getenv("DB_USER", "group8")
     DB_PASSWORD = os.getenv("DB_PASSWORD")
+    CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "")
 
     if DB_PASSWORD is None:
         raise RuntimeError("DB_PASSWORD is missing from the environment.")
