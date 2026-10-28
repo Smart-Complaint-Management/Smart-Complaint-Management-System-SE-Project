@@ -1,4 +1,6 @@
-from flask import Flask, jsonify
+import os
+
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 
@@ -9,6 +11,26 @@ app = Flask(__name__)
 app.config.from_object(Config)
 
 db = SQLAlchemy(app)
+
+
+@app.after_request
+def add_cors_headers(response):
+    allowed_origins = {
+        origin.strip().rstrip("/")
+        for origin in app.config["CORS_ALLOWED_ORIGINS"].split(",")
+        if origin.strip()
+    }
+    origin = request.headers.get("Origin")
+
+    if origin and origin.rstrip("/") in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization"
+        )
+        response.headers.add("Vary", "Origin")
+
+    return response
 
 
 @app.route("/")
@@ -47,4 +69,8 @@ def database_health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", "5000")),
+        debug=False,
+    )

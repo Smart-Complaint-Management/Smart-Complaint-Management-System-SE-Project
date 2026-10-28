@@ -215,3 +215,70 @@ User Escalation (if required)
 Administrator Review / Further Action
   ↓
 Resolution
+```
+
+---
+
+## Deployment
+
+### Current deployment architecture
+
+- **Frontend:** Vercel static hosting. The Vite production output is `frontend/dist`; `frontend/vercel.json` defines the build commands and SPA route fallback.
+- **Continuous deployment:** `.github/workflows/cd.yml` deploys the frontend to Vercel after the existing `CI` workflow succeeds for a push to `main`. Manual runs are limited to `main` and verify that the same commit has a successful CI run.
+- **Backend:** The Flask app is prepared to run under Gunicorn with a platform-provided `PORT`, debug mode disabled, and an explicit CORS origin allowlist. It is not included in automated deployment yet.
+- **Database:** No managed MySQL service is provisioned. The checked-in schema and `/db-health` endpoint do not constitute complaint persistence: the frontend still uses mock data, and complaint APIs/models are not implemented.
+
+Vercel's Hobby plan is free for personal projects. Check its current terms and usage limits before using it for a public or organizational production service. A Vercel project must be configured before the workflow can deploy.
+
+### Frontend environment
+
+`VITE_API_BASE_URL` is optional. Local development defaults to `http://localhost:5000/api`; production defaults to the same-origin `/api` path. The frontend currently uses mock data (`USE_REAL_API = false`), so setting this value alone does not connect it to Flask. Set it to the deployed API base URL only after matching API endpoints exist and the real API implementation is enabled.
+
+For local setup, copy `frontend/.env.example` to `frontend/.env.local` and change the value if needed. Do not put secrets in `VITE_*` variables: Vite embeds them in public browser assets.
+
+### Backend environment
+
+The Flask app requires a MySQL password at startup and reads these variables:
+
+| Variable | Purpose |
+|---|---|
+| `DB_HOST` | MySQL hostname |
+| `DB_PORT` | MySQL port; defaults to `3306` |
+| `DB_NAME` | Database name; defaults to `smart_complaint_db` |
+| `DB_USER` | Database user; defaults to `group8` |
+| `DB_PASSWORD` | Required MySQL password |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact browser origins allowed by CORS |
+| `PORT` | Hosting platform port; defaults to `5000` for local runs |
+
+Do not commit real values. Use a hosting provider's environment settings for backend values. The CORS allowlist should contain the exact Vercel origin, with no wildcard. `backend/.env.example` contains local-only examples.
+
+### Enable frontend deployment
+
+1. Create a Vercel account and a Vite project for this repository's `frontend/` directory. No paid Vercel plan is required for an eligible personal project.
+2. Use the Vercel CLI to link the local `frontend/` directory to that project. Read the `orgId` and `projectId` from the generated `.vercel/project.json`; do not commit that file.
+3. Create a Vercel access token with access limited to the project/team where possible.
+4. In GitHub, open **Settings → Secrets and variables → Actions** and add these repository secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `VERCEL_TOKEN` | Vercel access token |
+   | `VERCEL_ORG_ID` | Vercel organization/team ID from `.vercel/project.json` |
+   | `VERCEL_PROJECT_ID` | Vercel project ID from `.vercel/project.json` |
+
+5. Disable Vercel's independent Git production auto-deployment, or create a project not connected for automatic Git deployments. The GitHub workflow must be the production deployment gate so Vercel cannot publish a `main` commit before CI succeeds.
+6. After this branch is merged to `main`, a successful `CI` run starts CD. A manual run is available from **Actions → CD → Run workflow**, using `main`; it also checks for a successful CI run on that exact commit.
+
+No deployment credentials are stored in the repository. The workflow has read-only repository and Actions permissions, plus the three Vercel secrets at deploy time.
+
+### Backend deployment status and future setup
+
+The backend currently exposes only `/`, `/health`, and `/db-health`; the complaint, authentication, assignment, and notification APIs are not implemented. The React app does not call those routes. For that reason, this workflow does not publish a backend or claim end-to-end frontend/backend deployment.
+
+When a real MySQL host and API contract are available, create a Render Web Service for the `backend/` directory, set the `DB_*` variables above and `CORS_ALLOWED_ORIGINS` to the Vercel origin, and use:
+
+```bash
+pip install -r requirements.txt -r production-requirements.txt
+gunicorn app:app --bind 0.0.0.0:$PORT
+```
+
+Render's free web services can sleep after inactivity and take time to wake. Render does not provide a free managed MySQL service in this architecture; do not replace MySQL with Render Postgres without an explicit migration decision. Until an external MySQL database is configured, `/db-health` will report unavailable. Until complaint APIs are implemented and wired into the frontend, browser complaint data remains mock/local demo data and is not persisted by MySQL.
