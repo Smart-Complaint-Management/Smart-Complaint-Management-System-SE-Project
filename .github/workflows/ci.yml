@@ -70,5 +70,7 @@ jobs:
 
       - name: Run backend tests
         env:
+          DB_USER: test-only-user
           DB_PASSWORD: test-only-placeholder
+          SECRET_KEY: test-only-secret-key
         run: python -m unittest discover -s tests -v

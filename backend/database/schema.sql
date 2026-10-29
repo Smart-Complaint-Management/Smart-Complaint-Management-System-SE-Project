@@ -13,8 +13,15 @@ CREATE TABLE IF NOT EXISTS users (
     full_name VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('user', 'staff', 'admin') NOT NULL DEFAULT 'user',
+    role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    session_id VARCHAR(128) PRIMARY KEY,
+    user_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- =========================================
@@ -39,11 +46,12 @@ CREATE TABLE IF NOT EXISTS complaints (
     description TEXT NOT NULL,
 
     status ENUM(
-        'pending',
+        'submitted',
+        'under_review',
         'in_progress',
         'resolved',
         'rejected'
-    ) NOT NULL DEFAULT 'pending',
+    ) NOT NULL DEFAULT 'submitted',
 
     priority ENUM(
         'low',

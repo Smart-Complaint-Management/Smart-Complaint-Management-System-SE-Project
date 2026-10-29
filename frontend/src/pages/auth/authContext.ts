@@ -9,6 +9,7 @@ export interface AuthSession {
 
 export interface AuthContextValue {
   session: AuthSession | null;
+  loading: boolean;
   login: (session: AuthSession) => void;
   logout: () => void;
 }
