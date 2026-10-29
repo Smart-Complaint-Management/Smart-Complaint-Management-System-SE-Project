@@ -4,11 +4,13 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
-import { mockComplaints, mockUpdates } from '@/data/mockData';
 import { formatDate, relativeTime } from '@/services/api';
+import { getComplaintUpdates, getComplaints } from '@/services/complaintService';
 
 export function AdminEscalationsPage() {
-  const escalated = mockComplaints.filter((c) => c.isEscalated);
+  const complaints = getComplaints();
+  const updates = getComplaintUpdates();
+  const escalated = complaints.filter((c) => c.isEscalated);
 
   return (
     <div>
@@ -28,7 +30,7 @@ export function AdminEscalationsPage() {
       ) : (
         <div className="space-y-4">
           {escalated.map((c) => {
-            const escalationUpdate = mockUpdates
+            const escalationUpdate = updates
               .filter((u) => u.complaintId === c.id)
               .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
 

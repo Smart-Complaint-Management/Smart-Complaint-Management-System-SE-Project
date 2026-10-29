@@ -7,9 +7,9 @@ import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/pages/auth/authContext';
-import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
+import { categoryLabels } from '@/data/mockData';
 import { formatDateTime } from '@/services/api';
-import { submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
+import { getComplaintUpdates, getComplaints, submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
 import type { ComplaintStatus } from '@/types';
 import { patchComplaintStatus } from '@/services/authApi';
 
@@ -20,7 +20,7 @@ export function ComplaintDetailPage() {
   const navigate = useNavigate();
 
   const foundComplaint = useMemo(
-    () => mockComplaints.find((c) => c.id === id),
+    () => getComplaints().find((c) => c.id === id),
     [id],
   );
   const complaint = foundComplaint &&
@@ -28,7 +28,7 @@ export function ComplaintDetailPage() {
     ? foundComplaint
     : undefined;
   const updates = useMemo(
-    () => mockUpdates.filter((u) => u.complaintId === id),
+    () => getComplaintUpdates().filter((u) => u.complaintId === id),
     [id],
   );
 
