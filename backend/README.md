@@ -94,6 +94,20 @@ python app.py
 | `/` | GET | Backend welcome message |
 | `/health` | GET | Flask application health |
 | `/db-health` | GET | MySQL connection health |
+| `/complaints/<id>/status` | PATCH | Administrator-only complaint status update |
+
+### Status update authorization
+
+The status update route fails closed unless an authenticated server-side
+identity is available in Flask's request context. It requires the identity's
+role to be `admin`; a missing identity receives HTTP 401 and an authenticated
+non-administrator receives HTTP 403. The current repository does not yet
+provide login/session or token middleware, so no request can establish that
+identity in production until the authentication work is implemented. The
+route must not be changed to trust a role supplied in the request body.
+
+When authentication is connected, it must populate `g.current_user` with an
+`AuthenticatedUser` from `backend/auth.py` before the protected route runs.
 
 ## Database Tables
 
