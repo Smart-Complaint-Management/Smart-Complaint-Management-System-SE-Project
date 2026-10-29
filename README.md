@@ -282,3 +282,10 @@ gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
 Render's free web services can sleep after inactivity and take time to wake. Render does not provide a free managed MySQL service in this architecture; do not replace MySQL with Render Postgres without an explicit migration decision. Until an external MySQL database is configured, `/db-health` will report unavailable. Until complaint APIs are implemented and wired into the frontend, browser complaint data remains mock/local demo data and is not persisted by MySQL.
+
+
+### Deployed app the link below:
+```bash
+https://smart-complaint-management-system-s.vercel.app/
+```
+
