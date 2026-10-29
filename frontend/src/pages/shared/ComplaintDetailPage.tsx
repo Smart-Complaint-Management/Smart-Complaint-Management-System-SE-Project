@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Send } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -19,12 +19,18 @@ export function ComplaintDetailPage() {
   const isAdmin = session?.role === 'admin';
   const navigate = useNavigate();
 
-  const foundComplaint = mockComplaints.find((c) => c.id === id);
+  const foundComplaint = useMemo(
+    () => mockComplaints.find((c) => c.id === id),
+    [id],
+  );
   const complaint = foundComplaint &&
     (isAdmin || (session && foundComplaint.submittedBy === session.fullName))
     ? foundComplaint
     : undefined;
-  const updates = mockUpdates.filter((u) => u.complaintId === id);
+  const updates = useMemo(
+    () => mockUpdates.filter((u) => u.complaintId === id),
+    [id],
+  );
 
   const [showEscalationForm, setShowEscalationForm] = useState(false);
   const [escalationReason, setEscalationReason] = useState('');
