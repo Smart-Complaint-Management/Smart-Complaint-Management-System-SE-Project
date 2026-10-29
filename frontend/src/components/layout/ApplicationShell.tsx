@@ -1,15 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { Topbar, RoleSwitcher } from '@/components/layout/Topbar';
-import { useRole } from '@/context/RoleContext';
+import { Topbar } from '@/components/layout/Topbar';
+import { useAuth } from '@/pages/auth/authContext';
 
 interface ApplicationShellProps {
   children?: ReactNode;
 }
 
 export function ApplicationShell({ children }: ApplicationShellProps) {
-  const { user } = useRole();
+  const { session } = useAuth();
+  const role = session?.role ?? 'user';
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -22,7 +23,7 @@ export function ApplicationShell({ children }: ApplicationShellProps) {
     <div className="min-h-screen bg-surface">
       {/* Desktop sidebar */}
       <div className="hidden lg:block">
-        <Sidebar variant={user.role} />
+        <Sidebar variant={role} />
       </div>
 
       {/* Mobile sidebar overlay */}
@@ -34,7 +35,7 @@ export function ApplicationShell({ children }: ApplicationShellProps) {
             aria-hidden
           />
           <div className="relative h-full">
-            <Sidebar variant={user.role} />
+            <Sidebar variant={role} />
           </div>
         </div>
       )}
@@ -48,7 +49,6 @@ export function ApplicationShell({ children }: ApplicationShellProps) {
       </div>
 
       {/* Demo role switcher */}
-      <RoleSwitcher />
     </div>
   );
 }

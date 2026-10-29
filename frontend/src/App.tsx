@@ -18,6 +18,7 @@ import { LogoutPage } from '@/pages/auth/LogoutPage'; // SCMS-04
 import { AuthProvider } from '@/pages/auth/AuthProvider'; // SCMS-04
 import { RequireAuth } from '@/pages/auth/RequireAuth'; // SCMS-04
 import { RoleSync } from '@/pages/auth/RoleSync'; // SCMS-04
+import { RequireAdmin } from '@/pages/auth/RequireAdmin';
 
 export default function App() {
   return (
@@ -44,12 +45,14 @@ export default function App() {
                 <Route path="/notifications" element={<UserNotificationsPage />} />
 
                 {/* Admin routes */}
-                <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-                <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
-                <Route path="/admin/complaints" element={<AdminAllComplaintsPage />} />
-                <Route path="/admin/assignments" element={<AdminAssignmentsPage />} />
-                <Route path="/admin/escalations" element={<AdminEscalationsPage />} />
-                <Route path="/admin/reports" element={<AdminReportsPage />} />
+                <Route element={<RequireAdmin />}>
+                  <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+                  <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+                  <Route path="/admin/complaints" element={<AdminAllComplaintsPage />} />
+                  <Route path="/admin/assignments" element={<AdminAssignmentsPage />} />
+                  <Route path="/admin/escalations" element={<AdminEscalationsPage />} />
+                  <Route path="/admin/reports" element={<AdminReportsPage />} />
+                </Route>
               </Route>
             </Route>
 

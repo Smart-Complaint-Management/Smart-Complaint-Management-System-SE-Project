@@ -103,7 +103,7 @@ export function RegisterPage() {
 
             {submitted && (
               <p role="status" className="rounded-xl bg-accent-50 px-3 py-2 text-sm text-accent-800">
-                Account created (demo). Saving to the database will be connected to the backend later.
+                Account created. You can now log in with your credentials.
               </p>
             )}
                        </form>

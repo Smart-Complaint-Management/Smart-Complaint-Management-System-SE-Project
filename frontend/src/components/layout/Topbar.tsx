@@ -1,13 +1,13 @@
 import { Bell, Menu, X, User as UserIcon, Shield } from 'lucide-react';
-import { useRole } from '@/context/RoleContext';
+import { useAuth } from '@/pages/auth/authContext';
 
 interface TopbarProps {
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
 }
-
 export function Topbar({ onToggleSidebar, sidebarOpen }: TopbarProps) {
-  const { user } = useRole();
+  const { session } = useAuth();
+  const user = { name: session?.fullName ?? 'User', role: session?.role ?? 'user' };
   const isAdmin = user.role === 'admin';
 
   return (
@@ -55,33 +55,5 @@ export function Topbar({ onToggleSidebar, sidebarOpen }: TopbarProps) {
         </div>
       </div>
     </header>
-  );
-}
-
-export function RoleSwitcher() {
-  const { user, setRole } = useRole();
-
-  return (
-    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-2 shadow-card-hover lg:bottom-6 lg:right-6">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-400">Demo:</span>
-      <div className="flex items-center rounded-full bg-ink-50 p-0.5">
-        <button
-          onClick={() => setRole('user')}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            user.role === 'user' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-400 hover:text-ink-600'
-          }`}
-        >
-          User
-        </button>
-        <button
-          onClick={() => setRole('admin')}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            user.role === 'admin' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-400 hover:text-ink-600'
-          }`}
-        >
-          Admin
-        </button>
-      </div>
-    </div>
   );
 }

@@ -11,10 +11,11 @@ import { mockComplaints, mockUpdates, categoryLabels } from '@/data/mockData';
 import { formatDateTime } from '@/services/api';
 import { submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
 import type { ComplaintStatus } from '@/types';
+import { patchComplaintStatus } from '@/services/authApi';
 
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
   const isAdmin = session?.role === 'admin';
   const navigate = useNavigate();
 
@@ -91,23 +92,29 @@ export function ComplaintDetailPage() {
     }
   };
 
-  const handleStatusUpdate = () => {
+  const handleStatusUpdate = async () => {
     if (session?.role !== 'admin') {
       setStatusMessage('Access denied. Only administrators can update complaint status.');
       return;
     }
     if (!id || !pendingStatus) return;
 
-    const result = updateComplaintStatus(id, pendingStatus, session.fullName, session);
-    if (result.outcome === 'updated') {
+    try {
+      const result = await patchComplaintStatus(id, pendingStatus);
+      if (result) {
+        complaint.status = pendingStatus;
+        updateComplaintStatus(id, pendingStatus, session.fullName, session);
+      }
       setPendingStatus(null);
       setStatusMessage('Complaint status updated.');
-    } else if (result.outcome === 'unchanged') {
-      setStatusMessage('Choose a different status before saving.');
-    } else if (result.outcome === 'unauthorized') {
-      setStatusMessage('Access denied. Only administrators can update complaint status.');
-    } else {
-      setStatusMessage('Complaint not found.');
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 401) {
+        logout();
+        navigate('/login', { replace: true });
+        return;
+      }
+      setStatusMessage(status === 401 ? 'Your session expired. Please log in again.' : status === 403 ? 'Access denied. Only administrators can update complaint status.' : error instanceof Error ? error.message : 'Could not update complaint status.');
     }
   };
 
