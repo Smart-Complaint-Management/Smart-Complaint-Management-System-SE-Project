@@ -16,7 +16,9 @@
 // transparent.
 
 import type { AppNotification, Complaint, ComplaintUpdate } from '@/types';
-import { mockComplaints, mockNotifications, mockUpdates } from '@/data/mockData';
+import { mockComplaints, mockUpdates } from '@/data/mockData';
+import { getMyNotifications } from '@/services/complaintService';
+import type { AuthSession } from '@/pages/auth/authContext';
 
 // --- Configuration -----------------------------------------------------------
 
@@ -27,7 +29,7 @@ const API_BASE_URL =
 
 // Set this to true once the Flask backend is available and the endpoint shapes
 // below match the agreed contract. Until then the mock implementation is used.
-const USE_REAL_API = false;
+const USE_REAL_API = import.meta.env.VITE_USE_REAL_API === 'true';
 
 // --- Shared helpers ----------------------------------------------------------
 
@@ -85,8 +87,8 @@ function mockGetUpdatesForComplaint(id: string): Promise<ComplaintUpdate[]> {
   return mockDelay(structuredClone(updates));
 }
 
-function mockGetNotifications(): Promise<AppNotification[]> {
-  return mockDelay(structuredClone(mockNotifications));
+function mockGetNotifications(session: AuthSession | null): Promise<AppNotification[]> {
+  return mockDelay(structuredClone(getMyNotifications(session)));
 }
 
 // --- Real API stubs (activated when USE_REAL_API is true) --------------------
@@ -114,8 +116,14 @@ async function realGetUpdatesForComplaint(id: string): Promise<ComplaintUpdate[]
 }
 
 async function realGetNotifications(): Promise<AppNotification[]> {
-  const res = await fetch(`${API_BASE_URL}/notifications`);
-  if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`);
+  const res = await fetch(`${API_BASE_URL}/notifications`, { credentials: 'include' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string };
+    throw Object.assign(
+      new Error(data.error ?? `Failed to fetch notifications: ${res.status}`),
+      { status: res.status },
+    );
+  }
   return (await res.json()) as AppNotification[];
 }
 
@@ -125,7 +133,8 @@ export const api = {
   getComplaints: USE_REAL_API ? realGetComplaints : mockGetComplaints,
   getComplaintById: USE_REAL_API ? realGetComplaintById : mockGetComplaintById,
   getUpdatesForComplaint: USE_REAL_API ? realGetUpdatesForComplaint : mockGetUpdatesForComplaint,
-  getNotifications: USE_REAL_API ? realGetNotifications : mockGetNotifications,
+  getNotifications: (session: AuthSession | null) =>
+    USE_REAL_API ? realGetNotifications() : mockGetNotifications(session),
 };
 
 export { API_BASE_URL, USE_REAL_API };
