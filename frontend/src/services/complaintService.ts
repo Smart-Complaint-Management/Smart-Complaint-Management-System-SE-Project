@@ -1,5 +1,6 @@
 import {
   mockComplaints,
+  mockNotifications,
   mockUpdates,
   statusLabels,
 } from '@/data/mockData';
@@ -10,6 +11,8 @@ import type {
   ComplaintPriority,
   ComplaintStatus,
   ComplaintUpdate,
+  AppNotification,
+  NotificationType,
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
@@ -24,6 +27,7 @@ export interface NewComplaintInput {
 
 const STORAGE_KEY = 'scms_complaints';
 const UPDATES_STORAGE_KEY = 'scms_complaint_updates';
+const NOTIFICATIONS_STORAGE_KEY = 'scms_notifications';
 
 const PRIORITY_LEVELS: ComplaintPriority[] = [
   'low',
@@ -212,6 +216,77 @@ function saveUpdates(updates: ComplaintUpdate[]): void {
 }
 
 /**
+ * Load notifications recorded in this browser, falling back to the examples.
+ */
+function readNotifications(): AppNotification[] {
+  if (!isBrowser()) {
+    return mockNotifications;
+  }
+
+  try {
+    const saved = window.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+
+    if (saved !== null) {
+      const parsed: unknown = JSON.parse(saved);
+
+      if (Array.isArray(parsed)) {
+        return parsed as AppNotification[];
+      }
+    }
+  } catch (error) {
+    console.error('Unable to load saved notifications:', error);
+  }
+
+  return mockNotifications;
+}
+
+/**
+ * Persist notifications in browser storage.
+ */
+function saveNotifications(notifications: AppNotification[]): void {
+  if (!isBrowser()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      NOTIFICATIONS_STORAGE_KEY,
+      JSON.stringify(notifications),
+    );
+  } catch (error) {
+    console.error('Unable to save notifications:', error);
+
+    throw new Error('Could not persist notifications in browser storage.');
+  }
+}
+
+function recordEventNotification(
+  update: ComplaintUpdate,
+  type: NotificationType,
+  title: string,
+  message: string,
+): void {
+  const notifications = readNotifications();
+  const id = `NOT-${update.id}`;
+
+  if (notifications.some((notification) => notification.id === id)) {
+    return;
+  }
+
+  notifications.push({
+    id,
+    complaintId: update.complaintId,
+    type,
+    title,
+    message,
+    read: false,
+    timestamp: update.timestamp,
+  });
+
+  saveNotifications(notifications);
+}
+
+/**
  * Generate a complaint ID using the current year and existing IDs.
  */
 function nextComplaintId(): string {
@@ -309,6 +384,27 @@ export function getMyComplaints(
 
   return readComplaints().filter(
     (complaint) => complaint.submittedBy === session.fullName,
+  );
+}
+
+/**
+ * Return notifications only for complaints owned by the authenticated user.
+ */
+export function getMyNotifications(
+  session: AuthSession | null,
+): AppNotification[] {
+  if (session?.role !== 'user') {
+    return [];
+  }
+
+  const ownedComplaintIds = new Set(
+    readComplaints()
+      .filter((complaint) => complaint.submittedBy === session.fullName)
+      .map((complaint) => complaint.id),
+  );
+
+  return readNotifications().filter((notification) =>
+    ownedComplaintIds.has(notification.complaintId),
   );
 }
 
@@ -476,6 +572,16 @@ export function updateComplaintStatus(
   updates.push(update);
   saveUpdates(updates);
 
+  const isResolution = status === 'resolved';
+  recordEventNotification(
+    update,
+    isResolution ? 'resolution' : 'status_update',
+    isResolution ? 'Complaint resolved' : `Status update on ${complaintId}`,
+    isResolution
+      ? `Your complaint ${complaintId} has been marked as resolved.`
+      : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
+  );
+
   return { outcome: 'updated', update };
 }
 
@@ -546,6 +652,13 @@ export function submitComplaintEscalation(
 
   updates.push(update);
   saveUpdates(updates);
+
+  recordEventNotification(
+    update,
+    'escalation',
+    'Complaint escalated',
+    `Your escalation for ${complaintId} was submitted: ${trimmedReason}`,
+  );
 
   return { outcome: 'submitted', update };
 }

@@ -189,6 +189,48 @@ def database_health():
         }), 503
 
 
+@app.route("/notifications", methods=["GET"])
+def get_notifications():
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+
+    try:
+        rows = db.session.execute(
+            text(
+                "SELECT id, complaint_id, event_type, title, message, "
+                "is_read, created_at FROM notifications "
+                "WHERE user_id = :user_id "
+                "ORDER BY created_at DESC, id DESC"
+            ),
+            {"user_id": user.id},
+        ).mappings().all()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Notification retrieval failed")
+        return jsonify({"error": "Could not retrieve notifications."}), 500
+
+    notifications = []
+    for row in rows:
+        created_at = row["created_at"]
+        timestamp = created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
+        if " " in timestamp and "T" not in timestamp:
+            timestamp = timestamp.replace(" ", "T", 1)
+        if not timestamp.endswith("Z") and "+" not in timestamp:
+            timestamp += "Z"
+        notifications.append({
+            "id": str(row["id"]),
+            "complaintId": str(row["complaint_id"]),
+            "type": row["event_type"],
+            "title": row["title"],
+            "message": row["message"],
+            "read": bool(row["is_read"]),
+            "timestamp": timestamp,
+        })
+
+    return jsonify(notifications), 200
+
+
 @app.route("/complaints/<int:complaint_id>/status", methods=["PATCH"])
 @require_admin
 def update_complaint_status(complaint_id: int):
@@ -209,7 +251,7 @@ def update_complaint_status(complaint_id: int):
             lock_clause = " FOR UPDATE" if db.engine.dialect.name == "mysql" else ""
             complaint = db.session.execute(
                 text(
-                    "SELECT status FROM complaints "
+                    "SELECT status, user_id FROM complaints "
                     "WHERE id = :complaint_id" + lock_clause
                 ),
                 {"complaint_id": complaint_id},
@@ -236,7 +278,8 @@ def update_complaint_status(complaint_id: int):
                     "complaint_id": complaint_id,
                 },
             )
-            db.session.execute(
+
+            history = db.session.execute(
                 text(
                     "INSERT INTO complaint_history "
                     "(complaint_id, old_status, new_status, changed_by) "
@@ -247,6 +290,37 @@ def update_complaint_status(complaint_id: int):
                     "old_status": old_status,
                     "new_status": new_status,
                     "changed_by": user.id,
+                },
+            )
+            history_id = history.lastrowid
+            if db.engine.dialect.name == "sqlite":
+                history_id = db.session.execute(
+                    text("SELECT last_insert_rowid()")
+                ).scalar_one()
+            if history_id is None:
+                raise RuntimeError("Could not determine the complaint history event ID.")
+
+            is_resolution = new_status == "resolved"
+            event_type = "resolution" if is_resolution else "status_update"
+            title = "Complaint resolved" if is_resolution else f"Status update on {complaint_id}"
+            message = (
+                f"Your complaint {complaint_id} has been marked as resolved."
+                if is_resolution
+                else f"Your complaint {complaint_id} status changed to {new_status.replace('_', ' ').title()}."
+            )
+            db.session.execute(
+                text(
+                    "INSERT INTO notifications "
+                    "(user_id, complaint_id, event_key, event_type, title, message) "
+                    "VALUES (:user_id, :complaint_id, :event_key, :event_type, :title, :message)"
+                ),
+                {
+                    "user_id": complaint["user_id"],
+                    "complaint_id": complaint_id,
+                    "event_key": f"status-history-{history_id}",
+                    "event_type": event_type,
+                    "title": title,
+                    "message": message,
                 },
             )
     except Exception:

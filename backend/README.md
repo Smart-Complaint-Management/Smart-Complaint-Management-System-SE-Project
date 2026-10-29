@@ -115,10 +115,13 @@ Use a unique random `SECRET_KEY` for each deployment (for example, generate one 
 | `/auth/me` | GET | Return the server-verified session identity and CSRF token |
 | `/auth/logout` | POST | Clear the server session |
 | `/complaints/<id>/status` | PATCH | Administrator-only complaint status update |
+| `/notifications` | GET | Return notifications for the authenticated account |
 
 ### Status update authorization
 
 The signed HttpOnly cookie contains an opaque session ID. Each request validates it against `auth_sessions`, then loads the current role from `users` into `g.current_user`; logout deletes the server-side session row. Passwords are Werkzeug password hashes. Public registration ignores role input. Status updates require the DB role `admin`, a valid CSRF token, one of the five canonical statuses, and transactionally append status history. The database stores numeric complaint IDs.
+
+Each successful database status transition writes a notification for the complaint owner in the same transaction as the status and history update. A transition to `resolved` creates a `resolution` notification; other transitions create `status_update` notifications. Unchanged or failed status requests do not create notifications. `GET /notifications` requires the existing authenticated session and selects by its server-verified user ID; it accepts no recipient ID from the client.
 
 ## Database Tables
 
@@ -128,6 +131,7 @@ The signed HttpOnly cookie contains an opaque session ID. Each request validates
 4. complaints
 5. complaint_assignments
 6. complaint_history
+7. notifications
 
 ## Security Notes
 
@@ -138,4 +142,4 @@ The signed HttpOnly cookie contains an opaque session ID. Each request validates
 
 ## Current Scope
 
-Complaint listing, creation, tracking, ownership, and escalation still use the frontend's mock/local browser data; they do not have Flask persistence endpoints in this repository. Consequently those mock `CMP-...` records cannot be status-updated through the numeric-ID database endpoint. The connected status control reports this limitation for mock records. Administrator status persistence requires an existing database complaint ID.
+Complaint listing, creation, tracking, ownership, and escalation still use the frontend's mock/local browser data; they do not have Flask persistence endpoints in this repository. The frontend mock mode records status and escalation notifications in browser storage. In real API mode, the notifications page reads the authenticated backend endpoint; only database status changes currently create MySQL notifications. There is no backend escalation operation, so mock escalations cannot create MySQL notifications. Mock `CMP-...` records cannot be status-updated through the numeric-ID database endpoint. Administrator status persistence requires an existing database complaint ID.

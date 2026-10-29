@@ -27,6 +27,12 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
             db.session.execute(text("""CREATE TABLE complaint_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, complaint_id INTEGER NOT NULL,
                 old_status TEXT, new_status TEXT NOT NULL, changed_by INTEGER NOT NULL)"""))
+            db.session.execute(text("""CREATE TABLE notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                complaint_id INTEGER NOT NULL, event_key TEXT UNIQUE NOT NULL,
+                event_type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL,
+                is_read BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
             db.session.execute(text(
                 "INSERT INTO users (id, full_name, email, password_hash, role) VALUES "
                 "(1, 'Test User', 'user@example.test', :hash, 'user'), "
@@ -34,6 +40,7 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                 {"hash": generate_password_hash("UserPass123"),
                  "hash2": generate_password_hash("AdminPass123")})
             db.session.execute(text("INSERT INTO complaints (id, user_id, status) VALUES (1, 1, 'submitted')"))
+            db.session.execute(text("INSERT INTO complaints (id, user_id, status) VALUES (2, 2, 'submitted')"))
             db.session.commit()
         self.client = app.test_client()
 
@@ -48,6 +55,18 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
     def status(self):
         with app.app_context():
             return db.session.execute(text('SELECT status FROM complaints WHERE id=1')).scalar()
+
+    def notifications(self, user_id=None):
+        with app.app_context():
+            if user_id is None:
+                return db.session.execute(text(
+                    'SELECT user_id, complaint_id, event_type, title, message '
+                    'FROM notifications ORDER BY id'
+                )).all()
+            return db.session.execute(text(
+                'SELECT complaint_id, event_type FROM notifications '
+                'WHERE user_id=:user_id ORDER BY id'
+            ), {'user_id': user_id}).all()
 
     def test_user_login_and_invalid_password(self):
         response = self.login('user@example.test', 'UserPass123')
@@ -84,6 +103,7 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                                      headers={'X-CSRF-Token': token})
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.status(), 'submitted')
+        self.assertEqual(self.notifications(), [])
 
     def test_admin_status_updates_all_canonical_values_and_history(self):
         self.login('admin@example.test', 'AdminPass123')
@@ -100,6 +120,66 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
             self.assertEqual(len(rows), 5)
             self.assertEqual(rows[0], ('submitted', 'under_review'))
             self.assertEqual(rows[-1], ('rejected', 'submitted'))
+        notifications = self.notifications()
+        self.assertEqual(len(notifications), 5)
+        self.assertEqual([row[2] for row in notifications], [
+            'status_update', 'status_update', 'resolution', 'status_update', 'status_update'
+        ])
+        self.assertTrue(all(row[0] == 1 for row in notifications))
+
+    def test_unchanged_status_does_not_create_notification_or_duplicate(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        for _ in range(2):
+            response = self.client.patch('/complaints/1/status', json={'status': 'submitted'},
+                                         headers={'X-CSRF-Token': token})
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(response.json['changed'])
+        self.assertEqual(self.notifications(), [])
+
+    def test_failed_notification_insert_rolls_back_status_and_history(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        with app.app_context():
+            db.session.execute(text("""CREATE TRIGGER fail_notification_insert
+                BEFORE INSERT ON notifications BEGIN
+                SELECT RAISE(ABORT, 'notification insert failed'); END"""))
+            db.session.commit()
+
+        response = self.client.patch('/complaints/1/status', json={'status': 'in_progress'},
+                                     headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(self.status(), 'submitted')
+        with app.app_context():
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_history')).scalar(), 0)
+        self.assertEqual(self.notifications(), [])
+
+    def test_notifications_are_authenticated_and_scoped_to_current_user(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        for complaint_id, status in ((1, 'under_review'), (2, 'in_progress')):
+            response = self.client.patch(f'/complaints/{complaint_id}/status',
+                                         json={'status': status},
+                                         headers={'X-CSRF-Token': token})
+            self.assertEqual(response.status_code, 200)
+
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': token})
+        self.login('user@example.test', 'UserPass123')
+        own = self.client.get('/notifications?user_id=2')
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual([item['complaintId'] for item in own.json], ['1'])
+        self.assertEqual([item['type'] for item in own.json], ['status_update'])
+
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': self.client.get('/auth/me').json['csrfToken']})
+        self.login('admin@example.test', 'AdminPass123')
+        admin_own = self.client.get('/notifications')
+        self.assertEqual(admin_own.status_code, 200)
+        self.assertEqual([item['complaintId'] for item in admin_own.json], ['2'])
+
+    def test_unauthenticated_notification_retrieval_is_rejected(self):
+        response = self.client.get('/notifications')
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json)
 
     def test_missing_csrf_token_does_not_update(self):
         self.login('admin@example.test', 'AdminPass123')
