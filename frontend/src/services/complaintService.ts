@@ -291,6 +291,13 @@ export function getComplaints(): Complaint[] {
 }
 
 /**
+ * Return complaint timeline updates from browser storage or the mock fallback.
+ */
+export function getComplaintUpdates(): ComplaintUpdate[] {
+  return readUpdates();
+}
+
+/**
  * Return complaints belonging to the authenticated user.
  */
 export function getMyComplaints(
