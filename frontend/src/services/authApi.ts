@@ -1,4 +1,5 @@
 import type { UserRole } from '@/types';
+import type { ComplaintStatus, ComplaintUpdate } from '@/types';
 
 const base = import.meta.env.VITE_API_BASE_URL ??
   (import.meta.env.DEV ? 'http://localhost:5000' : '/api');
@@ -22,11 +23,19 @@ export async function registerRequest(fullName: string, email: string, password:
   await request('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, password }) });
 }
 export async function logoutRequest() { await request('/auth/logout', { method: 'POST' }); csrfToken = ''; }
+export async function getComplaintStatus(id: string) {
+  if (!/^\d+$/.test(id)) throw new Error('This complaint is not connected to a database record yet.');
+  return request(`/complaints/${encodeURIComponent(id)}/status`) as Promise<{
+    status: ComplaintStatus;
+    updates: ComplaintUpdate[];
+  }>;
+}
 export async function patchComplaintStatus(id: string, status: string) {
   if (!/^\d+$/.test(id)) throw new Error('This complaint is not connected to a database record yet.');
   return request(`/complaints/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }) as Promise<{
     complaint_id: number;
-    status: string;
+    status: ComplaintStatus;
     changed: boolean;
+    update?: ComplaintUpdate;
   }>;
 }

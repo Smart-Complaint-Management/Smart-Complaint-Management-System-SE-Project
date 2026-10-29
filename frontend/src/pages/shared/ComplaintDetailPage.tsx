@@ -11,7 +11,7 @@ import { categoryLabels } from '@/data/mockData';
 import { formatDateTime } from '@/services/api';
 import { getComplaintUpdates, getComplaints, submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
 import type { ComplaintStatus } from '@/types';
-import { patchComplaintStatus } from '@/services/authApi';
+import { getComplaintStatus, patchComplaintStatus } from '@/services/authApi';
 
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,9 +27,8 @@ export function ComplaintDetailPage() {
     (isAdmin || (session && foundComplaint.submittedBy === session.fullName))
     ? foundComplaint
     : undefined;
-  const updates = useMemo(
-    () => getComplaintUpdates().filter((u) => u.complaintId === id),
-    [id],
+  const [updates, setUpdates] = useState(() =>
+    getComplaintUpdates().filter((update) => update.complaintId === id),
   );
 
   const [showEscalationForm, setShowEscalationForm] = useState(false);
@@ -45,10 +44,35 @@ export function ComplaintDetailPage() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   useEffect(() => {
+    let active = true;
     setPendingStatus(null);
     setStatusMessage('');
     setDisplayedStatus(foundComplaint?.status ?? 'submitted');
-  }, [id, foundComplaint?.status]);
+    setUpdates(getComplaintUpdates().filter((update) => update.complaintId === id));
+
+    if (import.meta.env.VITE_USE_REAL_API === 'true' && id && /^\d+$/.test(id)) {
+      getComplaintStatus(id)
+        .then((result) => {
+          if (!active) return;
+          setDisplayedStatus(result.status);
+          setUpdates(result.updates);
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          const status = (error as { status?: number }).status;
+          if (status === 401) {
+            logout();
+            navigate('/login', { replace: true });
+            return;
+          }
+          setStatusMessage(error instanceof Error ? error.message : 'Could not load complaint status history.');
+        });
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [id, foundComplaint?.status, logout, navigate]);
 
   if (!complaint) {
     return (
@@ -129,15 +153,25 @@ export function ComplaintDetailPage() {
           return;
         }
         setDisplayedStatus(result.update.status);
+        setUpdates((current) => [...current, result.update]);
         setPendingStatus(null);
-        setStatusMessage('Demo status updated in browser storage only; it is not saved to MySQL.');
+        setStatusMessage(result.update.status === 'resolved'
+          ? 'Complaint resolved and case closed in browser storage only; it is not saved to MySQL.'
+          : 'Demo status updated in browser storage only; it is not saved to MySQL.');
         return;
       }
 
       const result = await patchComplaintStatus(id, pendingStatus);
-      setDisplayedStatus(result.status as ComplaintStatus);
+      setDisplayedStatus(result.status);
       setPendingStatus(null);
-      setStatusMessage(result.changed ? 'Complaint status updated.' : 'Complaint status is already up to date.');
+      if (result.changed && result.update) {
+        setUpdates((current) => current.some((update) => update.id === result.update?.id)
+          ? current
+          : [...current, result.update!]);
+      }
+      setStatusMessage(result.changed
+        ? result.status === 'resolved' ? 'Complaint resolved and case closed.' : 'Complaint status updated.'
+        : 'Complaint status is already up to date.');
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 401) {
@@ -251,21 +285,21 @@ export function ComplaintDetailPage() {
                       setStatusMessage('');
                     }}
                     aria-label="Update status"
-                    disabled={isUpdatingStatus}
+                    disabled={isUpdatingStatus || displayedStatus === 'resolved'}
                   >
                     <option value="submitted">Submitted</option>
                     <option value="under_review">Under Review</option>
                     <option value="in_progress">In Progress</option>
-                    <option value="resolved">Resolved</option>
+                    <option value="resolved">Resolved and closed</option>
                     <option value="rejected">Rejected</option>
                   </select>
                   <button
                     type="button"
                     className="btn btn-primary mt-2 w-full"
                     onClick={handleStatusUpdate}
-                    disabled={isUpdatingStatus || !pendingStatus || pendingStatus === displayedStatus}
+                    disabled={isUpdatingStatus || displayedStatus === 'resolved' || !pendingStatus || pendingStatus === displayedStatus}
                   >
-                    {isUpdatingStatus ? 'Updating...' : 'Save Status'}
+                    {isUpdatingStatus ? 'Updating...' : pendingStatus === 'resolved' ? 'Resolve and Close Case' : 'Save Status'}
                   </button>
                 </div>
                 <div>
