@@ -26,7 +26,8 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                 session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL)"""))
             db.session.execute(text("""CREATE TABLE complaint_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, complaint_id INTEGER NOT NULL,
-                old_status TEXT, new_status TEXT NOT NULL, changed_by INTEGER NOT NULL)"""))
+                old_status TEXT, new_status TEXT NOT NULL, changed_by INTEGER NOT NULL,
+                changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
             db.session.execute(text("""CREATE TABLE notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
                 complaint_id INTEGER NOT NULL, event_key TEXT UNIQUE NOT NULL,
@@ -108,7 +109,7 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
     def test_admin_status_updates_all_canonical_values_and_history(self):
         self.login('admin@example.test', 'AdminPass123')
         token = self.client.get('/auth/me').json['csrfToken']
-        for value in ('under_review', 'in_progress', 'resolved', 'rejected', 'submitted'):
+        for value in ('under_review', 'in_progress', 'rejected', 'submitted', 'resolved'):
             response = self.client.patch('/complaints/1/status', json={'status': value},
                                          headers={'X-CSRF-Token': token})
             self.assertEqual(response.status_code, 200, response.get_json())
@@ -119,13 +120,60 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
             rows = db.session.execute(text('SELECT old_status, new_status FROM complaint_history ORDER BY id')).all()
             self.assertEqual(len(rows), 5)
             self.assertEqual(rows[0], ('submitted', 'under_review'))
-            self.assertEqual(rows[-1], ('rejected', 'submitted'))
+            self.assertEqual(rows[-1], ('submitted', 'resolved'))
         notifications = self.notifications()
         self.assertEqual(len(notifications), 5)
         self.assertEqual([row[2] for row in notifications], [
-            'status_update', 'status_update', 'resolution', 'status_update', 'status_update'
+            'status_update', 'status_update', 'status_update', 'status_update', 'resolution'
         ])
         self.assertTrue(all(row[0] == 1 for row in notifications))
+
+    def test_resolution_closes_case_once_and_returns_history_update(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        response = self.client.patch('/complaints/1/status', json={'status': 'resolved'},
+                                     headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json['changed'])
+        self.assertEqual(response.json['update']['status'], 'resolved')
+        self.assertEqual(response.json['update']['complaintId'], '1')
+        self.assertEqual(response.json['update']['message'], 'Complaint resolved and case closed.')
+
+        duplicate = self.client.patch('/complaints/1/status', json={'status': 'resolved'},
+                                      headers={'X-CSRF-Token': token})
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertFalse(duplicate.json['changed'])
+        self.assertNotIn('update', duplicate.json)
+
+        reopen = self.client.patch('/complaints/1/status', json={'status': 'in_progress'},
+                                   headers={'X-CSRF-Token': token})
+        self.assertEqual(reopen.status_code, 409)
+        self.assertEqual(self.status(), 'resolved')
+        self.assertEqual(len(self.notifications()), 1)
+        self.assertEqual(self.notifications()[0][2], 'resolution')
+        with app.app_context():
+            rows = db.session.execute(text('SELECT old_status, new_status FROM complaint_history')).all()
+            self.assertEqual(rows, [('submitted', 'resolved')])
+
+    def test_status_history_read_is_authenticated_and_owner_scoped(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        self.client.patch('/complaints/1/status', json={'status': 'resolved'},
+                          headers={'X-CSRF-Token': token})
+
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': token})
+        self.login('user@example.test', 'UserPass123')
+        own = self.client.get('/complaints/1/status')
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(own.json['status'], 'resolved')
+        self.assertEqual(len(own.json['updates']), 1)
+        self.assertEqual(own.json['updates'][0]['status'], 'resolved')
+        self.assertEqual(own.json['updates'][0]['author'], 'Test Admin')
+        self.assertEqual(self.client.get('/complaints/2/status').status_code, 403)
+
+    def test_status_history_read_requires_authentication(self):
+        response = self.client.get('/complaints/1/status')
+        self.assertEqual(response.status_code, 401)
 
     def test_unchanged_status_does_not_create_notification_or_duplicate(self):
         self.login('admin@example.test', 'AdminPass123')

@@ -267,6 +267,10 @@ def update_complaint_status(complaint_id: int):
                     "status": new_status,
                     "changed": False,
                 }), 200
+            if old_status == "resolved":
+                return jsonify({
+                    "error": "A resolved complaint is closed and cannot be changed.",
+                }), 409
 
             db.session.execute(
                 text(
@@ -300,6 +304,13 @@ def update_complaint_status(complaint_id: int):
             if history_id is None:
                 raise RuntimeError("Could not determine the complaint history event ID.")
 
+            history_row = db.session.execute(
+                text(
+                    "SELECT changed_at FROM complaint_history WHERE id = :history_id"
+                ),
+                {"history_id": history_id},
+            ).mappings().one()
+
             is_resolution = new_status == "resolved"
             event_type = "resolution" if is_resolution else "status_update"
             title = "Complaint resolved" if is_resolution else f"Status update on {complaint_id}"
@@ -331,7 +342,80 @@ def update_complaint_status(complaint_id: int):
         "complaint_id": complaint_id,
         "status": new_status,
         "changed": True,
+        "update": {
+            "id": str(history_id),
+            "complaintId": str(complaint_id),
+            "status": new_status,
+            "message": (
+                "Complaint resolved and case closed."
+                if new_status == "resolved"
+                else f"Status changed to {new_status.replace('_', ' ').title()}."
+            ),
+            "author": "Administrator",
+            "timestamp": (
+                history_row["changed_at"].isoformat()
+                if hasattr(history_row["changed_at"], "isoformat")
+                else str(history_row["changed_at"])
+            ),
+        },
     }), 200
+
+
+@app.route("/complaints/<int:complaint_id>/status", methods=["GET"])
+def get_complaint_status(complaint_id: int):
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+
+    try:
+        complaint = db.session.execute(
+            text("SELECT status, user_id FROM complaints WHERE id = :complaint_id"),
+            {"complaint_id": complaint_id},
+        ).mappings().first()
+        if complaint is None:
+            return jsonify({"error": "Complaint not found."}), 404
+        if user.role != "admin" and complaint["user_id"] != user.id:
+            return jsonify({"error": "You cannot view this complaint."}), 403
+
+        rows = db.session.execute(
+            text(
+                "SELECT complaint_history.id, complaint_history.new_status, "
+                "complaint_history.changed_at, users.full_name "
+                "FROM complaint_history JOIN users "
+                "ON users.id = complaint_history.changed_by "
+                "WHERE complaint_history.complaint_id = :complaint_id "
+                "ORDER BY complaint_history.changed_at, complaint_history.id"
+            ),
+            {"complaint_id": complaint_id},
+        ).mappings().all()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Complaint status retrieval failed")
+        return jsonify({"error": "Could not retrieve complaint status."}), 500
+
+    updates = []
+    for row in rows:
+        changed_at = row["changed_at"]
+        timestamp = changed_at.isoformat() if hasattr(changed_at, "isoformat") else str(changed_at)
+        if " " in timestamp and "T" not in timestamp:
+            timestamp = timestamp.replace(" ", "T", 1)
+        if not timestamp.endswith("Z") and "+" not in timestamp:
+            timestamp += "Z"
+        status = row["new_status"]
+        updates.append({
+            "id": str(row["id"]),
+            "complaintId": str(complaint_id),
+            "status": status,
+            "message": (
+                "Complaint resolved and case closed."
+                if status == "resolved"
+                else f"Status changed to {status.replace('_', ' ').title()}."
+            ),
+            "author": row["full_name"],
+            "timestamp": timestamp,
+        })
+
+    return jsonify({"status": complaint["status"], "updates": updates}), 200
 
 
 if __name__ == "__main__":
