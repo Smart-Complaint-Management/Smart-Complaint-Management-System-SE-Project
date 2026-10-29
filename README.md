@@ -285,7 +285,7 @@ Render's free web services can sleep after inactivity and take time to wake. Ren
 
 
 ### Deployed app the link below:
-```bash
+
 https://smart-complaint-management-system-s.vercel.app/
-```
+
 
