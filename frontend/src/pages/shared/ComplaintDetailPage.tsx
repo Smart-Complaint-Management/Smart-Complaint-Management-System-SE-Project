@@ -32,13 +32,17 @@ export function ComplaintDetailPage() {
   const [isSubmittingEscalation, setIsSubmittingEscalation] = useState(false);
   const [escalationError, setEscalationError] = useState('');
   const escalationSubmissionLock = useRef(false);
+  const statusSubmissionLock = useRef(false);
   const [pendingStatus, setPendingStatus] = useState<ComplaintStatus | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
+  const [displayedStatus, setDisplayedStatus] = useState<ComplaintStatus>(foundComplaint?.status ?? 'submitted');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   useEffect(() => {
     setPendingStatus(null);
     setStatusMessage('');
-  }, [id]);
+    setDisplayedStatus(foundComplaint?.status ?? 'submitted');
+  }, [id, foundComplaint?.status]);
 
   if (!complaint) {
     return (
@@ -60,7 +64,7 @@ export function ComplaintDetailPage() {
     );
   }
 
-  const canEscalate = !isAdmin && !complaint.isEscalated && complaint.status !== 'resolved' && complaint.status !== 'rejected';
+  const canEscalate = !isAdmin && !complaint.isEscalated && displayedStatus !== 'resolved' && displayedStatus !== 'rejected';
 
   const handleEscalationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,20 +97,41 @@ export function ComplaintDetailPage() {
   };
 
   const handleStatusUpdate = async () => {
+    if (statusSubmissionLock.current || isUpdatingStatus) return;
     if (session?.role !== 'admin') {
       setStatusMessage('Access denied. Only administrators can update complaint status.');
       return;
     }
     if (!id || !pendingStatus) return;
 
+    statusSubmissionLock.current = true;
+    setIsUpdatingStatus(true);
     try {
-      const result = await patchComplaintStatus(id, pendingStatus);
-      if (result) {
-        complaint.status = pendingStatus;
-        updateComplaintStatus(id, pendingStatus, session.fullName, session);
+      if (!/^\d+$/.test(id)) {
+        const result = updateComplaintStatus(id, pendingStatus, session.fullName, session);
+        if (result.outcome === 'unauthorized') {
+          setStatusMessage('Access denied. Only administrators can update complaint status.');
+          return;
+        }
+        if (result.outcome === 'not_found') {
+          setStatusMessage('Complaint not found.');
+          return;
+        }
+        if (result.outcome === 'unchanged') {
+          setPendingStatus(null);
+          setStatusMessage('Complaint status is already up to date.');
+          return;
+        }
+        setDisplayedStatus(result.update.status);
+        setPendingStatus(null);
+        setStatusMessage('Demo status updated in browser storage only; it is not saved to MySQL.');
+        return;
       }
+
+      const result = await patchComplaintStatus(id, pendingStatus);
+      setDisplayedStatus(result.status as ComplaintStatus);
       setPendingStatus(null);
-      setStatusMessage('Complaint status updated.');
+      setStatusMessage(result.changed ? 'Complaint status updated.' : 'Complaint status is already up to date.');
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 401) {
@@ -115,6 +140,9 @@ export function ComplaintDetailPage() {
         return;
       }
       setStatusMessage(status === 401 ? 'Your session expired. Please log in again.' : status === 403 ? 'Access denied. Only administrators can update complaint status.' : error instanceof Error ? error.message : 'Could not update complaint status.');
+    } finally {
+      statusSubmissionLock.current = false;
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -136,7 +164,7 @@ export function ComplaintDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2">
-            <StatusBadge status={complaint.status} />
+            <StatusBadge status={displayedStatus} />
             <PriorityBadge priority={complaint.priority} />
           </div>
         }
@@ -211,12 +239,13 @@ export function ComplaintDetailPage() {
                   <label className="text-xs font-medium text-ink-400">Update Status</label>
                   <select
                     className="input mt-1"
-                    value={pendingStatus ?? complaint.status}
+                    value={pendingStatus ?? displayedStatus}
                     onChange={(event) => {
                       setPendingStatus(event.target.value as ComplaintStatus);
                       setStatusMessage('');
                     }}
                     aria-label="Update status"
+                    disabled={isUpdatingStatus}
                   >
                     <option value="submitted">Submitted</option>
                     <option value="under_review">Under Review</option>
@@ -228,9 +257,9 @@ export function ComplaintDetailPage() {
                     type="button"
                     className="btn btn-primary mt-2 w-full"
                     onClick={handleStatusUpdate}
-                    disabled={!pendingStatus || pendingStatus === complaint.status}
+                    disabled={isUpdatingStatus || !pendingStatus || pendingStatus === displayedStatus}
                   >
-                    Save Status
+                    {isUpdatingStatus ? 'Updating...' : 'Save Status'}
                   </button>
                 </div>
                 <div>
@@ -244,7 +273,7 @@ export function ComplaintDetailPage() {
                   </select>
                 </div>
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Status changes update the in-memory mock data and are lost after a refresh. The assignment control here is a UI affordance only.
+                  Demo complaint status changes are stored in this browser only. Database complaints use the authenticated backend; assignment remains a UI affordance.
                 </p>
               </div>
             </div>

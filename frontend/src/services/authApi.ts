@@ -24,5 +24,9 @@ export async function registerRequest(fullName: string, email: string, password:
 export async function logoutRequest() { await request('/auth/logout', { method: 'POST' }); csrfToken = ''; }
 export async function patchComplaintStatus(id: string, status: string) {
   if (!/^\d+$/.test(id)) throw new Error('This complaint is not connected to a database record yet.');
-  return request(`/complaints/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+  return request(`/complaints/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }) as Promise<{
+    complaint_id: number;
+    status: string;
+    changed: boolean;
+  }>;
 }
