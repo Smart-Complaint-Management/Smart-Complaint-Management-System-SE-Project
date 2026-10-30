@@ -24,12 +24,14 @@ export function RegisterPage() {
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setValues((prev) => ({ ...prev, [name]: value }));
     setErrors((prev) => ({ ...prev, [name]: undefined }));
+    setFormError("");
     setSubmitted(false);
   };
 
@@ -43,7 +45,8 @@ export function RegisterPage() {
     try {
       const result = await registerUser(values);
       if (!result.ok) {
-        setErrors({ [result.field]: result.message });
+        if ('field' in result) setErrors({ [result.field]: result.message });
+        else setFormError(result.message);
         return;
       }
       setSubmitted(true);
@@ -92,6 +95,12 @@ export function RegisterPage() {
                 )}
               </div>
             ))}
+
+            {formError && (
+              <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                {formError}
+              </p>
+            )}
 
             <button
               type="submit"

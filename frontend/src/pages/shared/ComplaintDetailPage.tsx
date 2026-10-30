@@ -370,8 +370,9 @@ export function ComplaintDetailPage() {
           {!complaint.isEscalated && canEscalate && showEscalationForm && !escalationSubmitted && (
             <form onSubmit={handleEscalationSubmit} className="card p-5">
               <h3 className="mb-3 text-sm font-semibold text-ink-800">Request Escalation</h3>
-              <label className="text-xs font-medium text-ink-400">Reason for escalation</label>
+              <label htmlFor="escalation-reason" className="text-xs font-medium text-ink-400">Reason for escalation</label>
               <textarea
+                id="escalation-reason"
                 value={escalationReason}
                 onChange={(e) => {
                   setEscalationReason(e.target.value);
@@ -381,8 +382,10 @@ export function ComplaintDetailPage() {
                 className="input mt-1 min-h-[80px] resize-y"
                 rows={3}
                 disabled={isSubmittingEscalation}
+                aria-invalid={escalationError ? true : undefined}
+                aria-describedby={escalationError ? "escalation-reason-error" : undefined}
               />
-              {escalationError && <p role="alert" className="mt-2 text-sm text-rose-600">{escalationError}</p>}
+              {escalationError && <p id="escalation-reason-error" role="alert" className="mt-2 text-sm text-rose-600">{escalationError}</p>}
               <div className="mt-3 flex gap-2">
                 <button type="submit" className="btn btn-primary flex-1" disabled={!escalationReason.trim() || isSubmittingEscalation}>
                   <Send className="h-4 w-4" /> {isSubmittingEscalation ? 'Submitting…' : 'Submit Request'}
