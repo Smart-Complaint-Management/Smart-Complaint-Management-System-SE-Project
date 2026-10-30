@@ -42,11 +42,14 @@ export function ComplaintDetailPage() {
   const [statusMessage, setStatusMessage] = useState('');
   const [displayedStatus, setDisplayedStatus] = useState<ComplaintStatus>(foundComplaint?.status ?? 'submitted');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [statusLoadRetry, setStatusLoadRetry] = useState(0);
+  const [statusLoadFailed, setStatusLoadFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
     setPendingStatus(null);
     setStatusMessage('');
+    setStatusLoadFailed(false);
     setDisplayedStatus(foundComplaint?.status ?? 'submitted');
     setUpdates(getComplaintUpdates().filter((update) => update.complaintId === id));
 
@@ -66,13 +69,14 @@ export function ComplaintDetailPage() {
             return;
           }
           setStatusMessage(error instanceof Error ? error.message : 'Could not load complaint status history.');
+          setStatusLoadFailed(true);
         });
     }
 
     return () => {
       active = false;
     };
-  }, [id, foundComplaint?.status, logout, navigate]);
+  }, [id, foundComplaint?.status, logout, navigate, statusLoadRetry]);
 
   if (!complaint) {
     return (
@@ -96,7 +100,7 @@ export function ComplaintDetailPage() {
 
   const canEscalate = !isAdmin && !complaint.isEscalated && displayedStatus !== 'resolved' && displayedStatus !== 'rejected';
 
-  const handleEscalationSubmit = (e: React.FormEvent) => {
+  const handleEscalationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (escalationSubmissionLock.current) return;
     if (!id) {
@@ -108,7 +112,7 @@ export function ComplaintDetailPage() {
     setIsSubmittingEscalation(true);
     setEscalationError('');
     try {
-      const result = submitComplaintEscalation(id, escalationReason, session);
+      const result = await Promise.resolve().then(() => submitComplaintEscalation(id, escalationReason, session));
       if (result.outcome === 'submitted') {
         setEscalationSubmitted(true);
       } else if (result.outcome === 'invalid_reason') {
@@ -120,6 +124,8 @@ export function ComplaintDetailPage() {
       } else {
         setEscalationError('This complaint has already been escalated or is no longer eligible.');
       }
+    } catch (error) {
+      setEscalationError(error instanceof Error ? error.message : 'Could not save your escalation. Please try again.');
     } finally {
       escalationSubmissionLock.current = false;
       setIsSubmittingEscalation(false);
@@ -217,6 +223,9 @@ export function ComplaintDetailPage() {
         >
           {statusMessage}
         </p>
+      )}
+      {statusLoadFailed && (
+        <button type="button" className="btn btn-secondary mb-4" onClick={() => setStatusLoadRetry((key) => key + 1)}>Retry loading status history</button>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

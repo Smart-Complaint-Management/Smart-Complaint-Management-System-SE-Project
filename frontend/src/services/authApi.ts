@@ -7,11 +7,16 @@ let csrfToken = '';
 
 export interface BackendUser { id: number; email: string; fullName: string; role: UserRole }
 async function request(path: string, init: RequestInit = {}) {
-  const response = await fetch(`${base}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}), ...init.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      ...init,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}), ...init.headers },
+    });
+  } catch {
+    throw new Error('Could not connect to the service. Check your connection and try again.');
+  }
   const data = await response.json().catch(() => ({})) as { error?: string; field?: string; user?: BackendUser; csrfToken?: string };
   if (!response.ok) throw Object.assign(new Error(data.error ?? `Request failed (${response.status})`), { status: response.status, field: data.field });
   if (data.csrfToken) csrfToken = data.csrfToken;

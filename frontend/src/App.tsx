@@ -19,11 +19,26 @@ import { AuthProvider } from '@/pages/auth/AuthProvider'; // SCMS-04
 import { RequireAuth } from '@/pages/auth/RequireAuth'; // SCMS-04
 import { RoleSync } from '@/pages/auth/RoleSync'; // SCMS-04
 import { RequireAdmin } from '@/pages/auth/RequireAdmin';
+import type { ReactNode } from 'react';
+import { useAuth } from '@/pages/auth/authContext';
+
+function AuthInitializationGate({ children }: { children: ReactNode }) {
+  const { initializationError, retryInitialization } = useAuth();
+  if (initializationError) return (
+    <main className="flex min-h-screen items-center justify-center bg-surface px-4">
+      <section role="alert" className="card max-w-md p-6 text-center">
+        <p className="text-sm text-rose-700">{initializationError}</p>
+        <button type="button" className="btn btn-secondary mt-4" onClick={retryInitialization}>Try again</button>
+      </section>
+    </main>
+  );
+  return children;
+}
 
 export default function App() {
   return (
     <AuthProvider>
-      <RoleProvider>
+      <AuthInitializationGate><RoleProvider>
         <RoleSync />
         <BrowserRouter>
           <Routes>
@@ -60,7 +75,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
         </BrowserRouter>
-      </RoleProvider>
+      </RoleProvider></AuthInitializationGate>
     </AuthProvider>
   );
 }
