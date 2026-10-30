@@ -1,10 +1,10 @@
-import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, FileText, ClipboardList, AlertTriangle, BarChart3 } from 'lucide-react';
 import { NavigationItem } from '@/components/layout/NavigationItem';
 import type { UserRole } from '@/types';
 
 interface SidebarProps {
   variant: UserRole;
+  navigationId?: string;
 }
 
 const userNav = [
@@ -22,7 +22,7 @@ const adminNav = [
   { to: '/admin/reports', label: 'Reports & Analytics', icon: BarChart3 },
 ];
 
-export function Sidebar({ variant }: SidebarProps) {
+export function Sidebar({ variant, navigationId }: SidebarProps) {
   const items = variant === 'admin' ? adminNav : userNav;
 
   return (
@@ -31,6 +31,7 @@ export function Sidebar({ variant }: SidebarProps) {
         variant === 'user' ? 'bg-ink-950' : 'bg-white border-r border-ink-100'
       }`}
       aria-label="Primary navigation"
+      id={navigationId}
     >
       {/* Brand */}
       <div className="flex h-16 items-center gap-2.5 px-5">
@@ -44,7 +45,7 @@ export function Sidebar({ variant }: SidebarProps) {
           <span className={`text-sm font-semibold ${variant === 'user' ? 'text-white' : 'text-ink-900'}`}>
             SCMS
           </span>
-          <span className={`text-[10px] ${variant === 'user' ? 'text-ink-400' : 'text-ink-400'}`}>
+          <span className={`text-xs ${variant === 'user' ? 'text-ink-300' : 'text-ink-600'}`}>
             Complaint Management
           </span>
         </div>
@@ -52,7 +53,7 @@ export function Sidebar({ variant }: SidebarProps) {
 
       {/* Nav items */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-        <p className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider ${variant === 'user' ? 'text-ink-500' : 'text-ink-400'}`}>
+        <p className={`px-3 py-2 text-xs font-semibold uppercase tracking-wider ${variant === 'user' ? 'text-ink-300' : 'text-ink-600'}`}>
           {variant === 'admin' ? 'Administration' : 'Workspace'}
         </p>
         {items.map((item) => (
@@ -66,24 +67,6 @@ export function Sidebar({ variant }: SidebarProps) {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className={`border-t px-3 py-3 ${variant === 'user' ? 'border-ink-800' : 'border-ink-100'}`}>
-        <NavLink
-          to={variant === 'admin' ? '/admin/dashboard' : '/overview'}
-          end={false}
-          className={({ isActive }) =>
-            isActive
-              ? variant === 'user'
-                ? 'nav-item nav-item-active'
-                : 'nav-item nav-item-admin-active'
-              : variant === 'user'
-                ? 'nav-item nav-item-default'
-                : 'nav-item nav-item-admin'
-          }
-        >
-          <span className="text-xs">{variant === 'admin' ? 'Admin View' : 'User View'}</span>
-        </NavLink>
-      </div>
     </aside>
   );
 }

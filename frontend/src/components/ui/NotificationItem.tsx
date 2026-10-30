@@ -32,17 +32,17 @@ export function NotificationItem({ notification }: NotificationItemProps) {
         <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${typeIcon[notification.type]}`}>
           {notification.complaintId.slice(-2)}
         </span>
-        {!notification.read && <span className="h-2 w-2 rounded-full bg-accent-500" aria-label="Unread" />}
+        {!notification.read && <><span className="h-2 w-2 rounded-full bg-accent-600" aria-hidden="true" /><span className="sr-only">Unread notification</span></>}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-ink-800">{notification.title}</p>
-          <span className="rounded bg-ink-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-400">
+          <span className="rounded bg-ink-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-ink-700">
             {typeLabel[notification.type]}
           </span>
         </div>
         <p className="mt-1 text-sm text-ink-500">{notification.message}</p>
-        <p className="mt-1.5 text-xs text-ink-400">
+        <p className="mt-1.5 text-sm text-ink-600">
           {formatDateTime(notification.timestamp)} · {relativeTime(notification.timestamp)}
         </p>
       </div>

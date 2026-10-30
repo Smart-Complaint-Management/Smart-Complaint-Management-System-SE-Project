@@ -248,10 +248,10 @@ export function AdminReportsPage() {
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Category distribution */}
         <div className="card p-6">
-          <h2 className="mb-1 text-base font-semibold text-ink-900">
+          <h2 id="category-chart-heading" className="mb-1 text-base font-semibold text-ink-900">
             Complaints by Category
           </h2>
-          <p className="mb-5 text-xs text-ink-400">
+          <p id="category-chart-description" className="mb-5 text-sm text-ink-600">
             Distribution across complaint categories.
           </p>
 
@@ -260,7 +260,7 @@ export function AdminReportsPage() {
               No category data available.
             </p>
           ) : (
-            <div className="space-y-3">
+            <div role="group" aria-labelledby="category-chart-heading" aria-describedby="category-chart-description" className="space-y-3">
               {byCategory.map((category) => (
                 <div key={category.label}>
                   <div className="mb-1 flex items-center justify-between text-sm">
@@ -286,10 +286,10 @@ export function AdminReportsPage() {
 
         {/* Status breakdown */}
         <div className="card p-6">
-          <h2 className="mb-1 text-base font-semibold text-ink-900">
+          <h2 id="status-chart-heading" className="mb-1 text-base font-semibold text-ink-900">
             Status Breakdown
           </h2>
-          <p className="mb-5 text-xs text-ink-400">
+          <p id="status-chart-description" className="mb-5 text-sm text-ink-600">
             Current status of all complaints.
           </p>
 
@@ -298,7 +298,7 @@ export function AdminReportsPage() {
               No status data available.
             </p>
           ) : (
-            <div className="space-y-3">
+            <div role="group" aria-labelledby="status-chart-heading" aria-describedby="status-chart-description" className="space-y-3">
               {byStatus.map((status) => {
                 const statusColor: Record<string, string> = {
                   submitted: 'bg-ink-400',
@@ -337,12 +337,12 @@ export function AdminReportsPage() {
       <div className="card mt-6 p-6">
         <div className="mb-1 flex items-center gap-2">
           <Users className="h-5 w-5 text-accent-600" />
-          <h2 className="text-base font-semibold text-ink-900">
+          <h2 id="team-chart-heading" className="text-base font-semibold text-ink-900">
             Team Assignment Breakdown
           </h2>
         </div>
 
-        <p className="mb-5 text-xs text-ink-400">
+        <p id="team-chart-description" className="mb-5 text-sm text-ink-600">
           Number of complaints assigned to each team, including unassigned
           complaints.
         </p>
@@ -352,7 +352,7 @@ export function AdminReportsPage() {
             No assignment data available.
           </p>
         ) : (
-          <div className="space-y-4">
+          <div role="group" aria-labelledby="team-chart-heading" aria-describedby="team-chart-description" className="space-y-4">
             {byTeam.map(({ team, count }) => (
               <div key={team}>
                 <div className="mb-1 flex items-center justify-between gap-3 text-sm">
@@ -420,7 +420,7 @@ export function AdminReportsPage() {
               </p>
             </div>
           </div>
-          <p className="mt-1 text-[10px] text-ink-400">
+          <p className="mt-1 text-sm text-ink-600">
             Demo estimate using submitted and updated timestamps.
           </p>
         </div>

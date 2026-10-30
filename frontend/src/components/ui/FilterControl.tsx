@@ -13,14 +13,15 @@ interface FilterControlProps {
 }
 
 export function FilterControl({ label, value, options, onChange }: FilterControlProps) {
+  const id = `filter-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs font-medium text-ink-500">{label}</label>
+      <label htmlFor={id} className="text-sm font-medium text-ink-700">{label}</label>
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="input min-w-[8rem] cursor-pointer pr-8"
-        aria-label={label}
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
