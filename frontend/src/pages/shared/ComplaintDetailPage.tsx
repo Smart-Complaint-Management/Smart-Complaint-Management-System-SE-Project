@@ -407,7 +407,7 @@ export function ComplaintDetailPage() {
           )}
 
           {escalationSubmitted && (
-            <div className="card border-emerald-200 bg-emerald-50/50 p-4">
+            <div role="status" className="card border-emerald-200 bg-emerald-50/50 p-4">
               <p className="text-sm font-medium text-emerald-800">Escalation request submitted</p>
               <p className="mt-1 text-xs text-emerald-700">
                 Your request has been recorded in this session's mock data. An administrator can review it.

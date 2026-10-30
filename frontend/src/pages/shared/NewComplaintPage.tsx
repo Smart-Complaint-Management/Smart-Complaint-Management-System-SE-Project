@@ -198,7 +198,7 @@ export function NewComplaintPage() {
           Back to My Complaints
         </button>
 
-        <div className="card mx-auto max-w-lg p-8 text-center">
+        <div role="status" className="card mx-auto max-w-lg p-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
             <svg
               className="h-6 w-6 text-emerald-600"

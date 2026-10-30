@@ -34,7 +34,7 @@ export function ComplaintTable({
               <th className="hidden px-3 py-3 text-xs font-semibold uppercase tracking-wide text-ink-400 lg:table-cell">Assigned</th>
             )}
             <th className="hidden px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-ink-400 lg:table-cell">Submitted</th>
-            <th className="px-5 py-3"></th>
+            <th scope="col" className="px-5 py-3 text-right text-sm font-semibold uppercase tracking-wide text-ink-600">Open</th>
           </tr>
         </thead>
         <tbody>
@@ -46,9 +46,9 @@ export function ComplaintTable({
               <td className="px-5 py-3.5">
                 <Link to={`/complaints/${complaint.id}`} className="block">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-medium text-ink-400">{complaint.id}</span>
+                    <span className="font-mono text-sm font-medium text-ink-600">{complaint.id}</span>
                     {showEscalation && complaint.isEscalated && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-600">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-700">
                         <AlertTriangle className="h-3 w-3" /> Escalated
                       </span>
                     )}
@@ -59,7 +59,7 @@ export function ComplaintTable({
                 </Link>
               </td>
               <td className="hidden px-3 py-3.5 md:table-cell">
-                <span className="text-xs text-ink-500">{categoryLabels[complaint.category]}</span>
+                <span className="text-sm text-ink-600">{categoryLabels[complaint.category]}</span>
               </td>
               {showPriority && (
                 <td className="hidden px-3 py-3.5 lg:table-cell">
@@ -75,11 +75,11 @@ export function ComplaintTable({
                 </td>
               )}
               <td className="hidden px-3 py-3.5 text-right lg:table-cell">
-                <span className="text-xs text-ink-400">{formatDate(complaint.submittedAt)}</span>
+                <span className="text-sm text-ink-600">{formatDate(complaint.submittedAt)}</span>
               </td>
               <td className="px-5 py-3.5 text-right">
-                <Link to={`/complaints/${complaint.id}`}>
-                  <ChevronRight className="ml-auto h-4 w-4 text-ink-300 group-hover:text-accent-500" />
+                <Link to={`/complaints/${complaint.id}`} aria-label={`Open complaint ${complaint.id}: ${complaint.subject}`}>
+                  <ChevronRight aria-hidden="true" className="ml-auto h-4 w-4 text-ink-400 group-hover:text-accent-600" />
                 </Link>
               </td>
             </tr>
