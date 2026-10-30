@@ -12,7 +12,6 @@ import type {
   ComplaintStatus,
   ComplaintUpdate,
   AppNotification,
-  NotificationType,
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
@@ -28,6 +27,24 @@ export interface NewComplaintInput {
 const STORAGE_KEY = 'scms_complaints';
 const UPDATES_STORAGE_KEY = 'scms_complaint_updates';
 const NOTIFICATIONS_STORAGE_KEY = 'scms_notifications';
+
+function saveStorageBatch(entries: [string, unknown][]): void {
+  if (!isBrowser()) return;
+  const previous: (readonly [string, string | null])[] = [];
+  try {
+    for (const [key] of entries) previous.push([key, window.localStorage.getItem(key)]);
+    for (const [key, value] of entries) window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    for (const [key, value] of previous) {
+      try {
+        if (value === null) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, value);
+      } catch { /* Best effort rollback if browser storage is unavailable. */ }
+    }
+    console.error('Unable to save complaint updates:', error);
+    throw new Error('Could not save this change in browser storage. Your previous data was restored where possible.');
+  }
+}
 
 const PRIORITY_LEVELS: ComplaintPriority[] = [
   'low',
@@ -149,25 +166,6 @@ function readComplaints(): Complaint[] {
 /**
  * Persist complaints in browser storage.
  */
-function saveComplaints(complaints: Complaint[]): void {
-  if (!isBrowser()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(complaints),
-    );
-  } catch (error) {
-    console.error('Unable to save complaints:', error);
-
-    throw new Error(
-      'Could not persist complaints in browser storage.',
-    );
-  }
-}
-
 /**
  * Load complaint timeline updates.
  */
@@ -196,25 +194,6 @@ function readUpdates(): ComplaintUpdate[] {
 /**
  * Persist complaint timeline updates.
  */
-function saveUpdates(updates: ComplaintUpdate[]): void {
-  if (!isBrowser()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      UPDATES_STORAGE_KEY,
-      JSON.stringify(updates),
-    );
-  } catch (error) {
-    console.error('Unable to save complaint updates:', error);
-
-    throw new Error(
-      'Could not persist complaint updates in browser storage.',
-    );
-  }
-}
-
 /**
  * Load notifications recorded in this browser, falling back to the examples.
  */
@@ -243,49 +222,6 @@ function readNotifications(): AppNotification[] {
 /**
  * Persist notifications in browser storage.
  */
-function saveNotifications(notifications: AppNotification[]): void {
-  if (!isBrowser()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      NOTIFICATIONS_STORAGE_KEY,
-      JSON.stringify(notifications),
-    );
-  } catch (error) {
-    console.error('Unable to save notifications:', error);
-
-    throw new Error('Could not persist notifications in browser storage.');
-  }
-}
-
-function recordEventNotification(
-  update: ComplaintUpdate,
-  type: NotificationType,
-  title: string,
-  message: string,
-): void {
-  const notifications = readNotifications();
-  const id = `NOT-${update.id}`;
-
-  if (notifications.some((notification) => notification.id === id)) {
-    return;
-  }
-
-  notifications.push({
-    id,
-    complaintId: update.complaintId,
-    type,
-    title,
-    message,
-    read: false,
-    timestamp: update.timestamp,
-  });
-
-  saveNotifications(notifications);
-}
-
 /**
  * Generate a complaint ID using the current year and existing IDs.
  */
@@ -337,12 +273,9 @@ export async function createComplaint(
     possibleDuplicateId: null,
   };
 
-  const complaints = readComplaints();
-
+  const complaints = [...readComplaints()];
   complaints.unshift(complaint);
-  saveComplaints(complaints);
-
-  const updates = readUpdates();
+  const updates = [...readUpdates()];
 
   updates.push({
     id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
@@ -353,7 +286,7 @@ export async function createComplaint(
     timestamp: now,
   });
 
-  saveUpdates(updates);
+  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates]]);
 
   return complaint;
 }
@@ -537,7 +470,7 @@ export function updateComplaintStatus(
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = readComplaints();
+  const complaints = [...readComplaints()].map((item) => ({ ...item }));
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
@@ -553,7 +486,7 @@ export function updateComplaintStatus(
 
   const timestamp = new Date().toISOString();
 
-  const updates = readUpdates();
+  const updates = [...readUpdates()];
 
   const update: ComplaintUpdate = {
     id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
@@ -567,20 +500,19 @@ export function updateComplaintStatus(
   complaint.status = status;
   complaint.updatedAt = timestamp;
 
-  saveComplaints(complaints);
-
   updates.push(update);
-  saveUpdates(updates);
-
   const isResolution = status === 'resolved';
-  recordEventNotification(
-    update,
-    isResolution ? 'resolution' : 'status_update',
-    isResolution ? 'Complaint resolved' : `Status update on ${complaintId}`,
-    isResolution
+  const notifications = [...readNotifications()];
+  const notificationId = `NOT-${update.id}`;
+  if (!notifications.some((item) => item.id === notificationId)) notifications.push({
+    id: notificationId, complaintId, type: isResolution ? 'resolution' : 'status_update',
+    title: isResolution ? 'Complaint resolved' : `Status update on ${complaintId}`,
+    message: isResolution
       ? `Your complaint ${complaintId} has been marked as resolved.`
       : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
-  );
+    read: false, timestamp: update.timestamp,
+  });
+  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates], [NOTIFICATIONS_STORAGE_KEY, notifications]]);
 
   return { outcome: 'updated', update };
 }
@@ -604,7 +536,7 @@ export function submitComplaintEscalation(
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = readComplaints();
+  const complaints = [...readComplaints()].map((item) => ({ ...item }));
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
@@ -634,7 +566,7 @@ export function submitComplaintEscalation(
 
   const timestamp = new Date().toISOString();
 
-  const updates = readUpdates();
+  const updates = [...readUpdates()];
 
   const update: ComplaintUpdate = {
     id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
@@ -648,17 +580,15 @@ export function submitComplaintEscalation(
   complaint.isEscalated = true;
   complaint.updatedAt = timestamp;
 
-  saveComplaints(complaints);
-
   updates.push(update);
-  saveUpdates(updates);
-
-  recordEventNotification(
-    update,
-    'escalation',
-    'Complaint escalated',
-    `Your escalation for ${complaintId} was submitted: ${trimmedReason}`,
-  );
+  const notifications = [...readNotifications()];
+  const notificationId = `NOT-${update.id}`;
+  if (!notifications.some((item) => item.id === notificationId)) notifications.push({
+    id: notificationId, complaintId, type: 'escalation', title: 'Complaint escalated',
+    message: `Your escalation for ${complaintId} was submitted: ${trimmedReason}`,
+    read: false, timestamp,
+  });
+  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates], [NOTIFICATIONS_STORAGE_KEY, notifications]]);
 
   return { outcome: 'submitted', update };
 }

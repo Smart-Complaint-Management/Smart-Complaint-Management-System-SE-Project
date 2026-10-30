@@ -97,26 +97,26 @@ function mockGetNotifications(session: AuthSession | null): Promise<AppNotificat
 // paths are illustrative and MUST be confirmed against the final API contract.
 
 async function realGetComplaints(): Promise<Complaint[]> {
-  const res = await fetch(`${API_BASE_URL}/complaints`);
-  if (!res.ok) throw new Error(`Failed to fetch complaints: ${res.status}`);
+  const res = await fetch(`${API_BASE_URL}/complaints`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
+  if (!res.ok) throw await responseError(res, 'Could not load complaints.');
   return (await res.json()) as Complaint[];
 }
 
 async function realGetComplaintById(id: string): Promise<Complaint | null> {
-  const res = await fetch(`${API_BASE_URL}/complaints/${encodeURIComponent(id)}`);
+  const res = await fetch(`${API_BASE_URL}/complaints/${encodeURIComponent(id)}`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Failed to fetch complaint ${id}: ${res.status}`);
+  if (!res.ok) throw await responseError(res, 'Could not load this complaint.');
   return (await res.json()) as Complaint;
 }
 
 async function realGetUpdatesForComplaint(id: string): Promise<ComplaintUpdate[]> {
-  const res = await fetch(`${API_BASE_URL}/complaints/${encodeURIComponent(id)}/updates`);
-  if (!res.ok) throw new Error(`Failed to fetch updates: ${res.status}`);
+  const res = await fetch(`${API_BASE_URL}/complaints/${encodeURIComponent(id)}/updates`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
+  if (!res.ok) throw await responseError(res, 'Could not load complaint updates.');
   return (await res.json()) as ComplaintUpdate[];
 }
 
 async function realGetNotifications(): Promise<AppNotification[]> {
-  const res = await fetch(`${API_BASE_URL}/notifications`, { credentials: 'include' });
+  const res = await fetch(`${API_BASE_URL}/notifications`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string };
     throw Object.assign(
@@ -125,6 +125,11 @@ async function realGetNotifications(): Promise<AppNotification[]> {
     );
   }
   return (await res.json()) as AppNotification[];
+}
+
+async function responseError(response: Response, fallback: string): Promise<Error> {
+  const data = await response.json().catch(() => ({})) as { error?: string };
+  return Object.assign(new Error(data.error ?? `${fallback} (request failed: ${response.status})`), { status: response.status });
 }
 
 // --- Public API surface ------------------------------------------------------

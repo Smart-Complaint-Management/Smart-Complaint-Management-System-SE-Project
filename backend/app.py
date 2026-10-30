@@ -25,13 +25,18 @@ def load_authenticated_user():
     session_id = session.get("session_id")
     if not isinstance(session_id, str):
         return
-    row = db.session.execute(
-        text("SELECT users.id, users.role FROM users "
-             "JOIN auth_sessions ON auth_sessions.user_id = users.id "
-             "WHERE auth_sessions.session_id = :session_id"),
-        {"session_id": session_id}
-    ).mappings().first()
-    db.session.commit()
+    try:
+        row = db.session.execute(
+            text("SELECT users.id, users.role FROM users "
+                 "JOIN auth_sessions ON auth_sessions.user_id = users.id "
+                 "WHERE auth_sessions.session_id = :session_id"),
+            {"session_id": session_id}
+        ).mappings().first()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Authenticated user lookup failed")
+        return jsonify({"error": "Could not verify your session."}), 503
     if row is None or row["role"] not in {"user", "admin"}:
         session.clear()
         return
@@ -120,21 +125,30 @@ def login():
     password = payload.get("password") if isinstance(payload, dict) else None
     if not isinstance(email, str) or not isinstance(password, str):
         return jsonify({"error": "Email and password are required."}), 400
-    row = db.session.execute(text(
-        "SELECT id, full_name, email, password_hash, role FROM users WHERE email = :email"
-    ), {"email": email.strip().lower()}).mappings().first()
+    try:
+        row = db.session.execute(text(
+            "SELECT id, full_name, email, password_hash, role FROM users WHERE email = :email"
+        ), {"email": email.strip().lower()}).mappings().first()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Login lookup failed")
+        return jsonify({"error": "Could not sign in right now. Please try again."}), 503
     if row is None or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "Invalid email or password."}), 401
     if row["role"] not in {"user", "admin"}:
         return jsonify({"error": "This account has an unsupported role."}), 403
+    session_id = secrets.token_urlsafe(48)
+    try:
+        db.session.execute(text(
+            "INSERT INTO auth_sessions (session_id, user_id) VALUES (:session_id, :user_id)"
+        ), {"session_id": session_id, "user_id": row["id"]})
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Login session creation failed")
+        return jsonify({"error": "Could not sign in right now. Please try again."}), 503
     session.clear()
     session.permanent = True
-    session_id = secrets.token_urlsafe(48)
-    db.session.commit()
-    db.session.execute(text(
-        "INSERT INTO auth_sessions (session_id, user_id) VALUES (:session_id, :user_id)"
-    ), {"session_id": session_id, "user_id": row["id"]})
-    db.session.commit()
     session["session_id"] = session_id
     session["csrf_token"] = secrets.token_urlsafe(32)
     return jsonify({"user": public_user(row), "csrfToken": session["csrf_token"]}), 200
@@ -145,9 +159,14 @@ def who_am_i():
     user = current_user()
     if user is None:
         return jsonify({"error": "Authentication is required."}), 401
-    row = db.session.execute(text(
-        "SELECT id, full_name, email, role FROM users WHERE id = :id"
-    ), {"id": user.id}).mappings().first()
+    try:
+        row = db.session.execute(text(
+            "SELECT id, full_name, email, role FROM users WHERE id = :id"
+        ), {"id": user.id}).mappings().first()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Authenticated user retrieval failed")
+        return jsonify({"error": "Could not retrieve your account right now."}), 503
     return jsonify({"user": public_user(row), "csrfToken": session.get("csrf_token")}), 200
 
 
@@ -155,10 +174,15 @@ def who_am_i():
 def logout():
     session_id = session.get("session_id")
     if isinstance(session_id, str):
-        db.session.execute(text(
-            "DELETE FROM auth_sessions WHERE session_id = :session_id"
-        ), {"session_id": session_id})
-        db.session.commit()
+        try:
+            db.session.execute(text(
+                "DELETE FROM auth_sessions WHERE session_id = :session_id"
+            ), {"session_id": session_id})
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception("Logout session removal failed")
+            return jsonify({"error": "Could not sign out right now. Please try again."}), 503
     session.clear()
     return jsonify({"loggedOut": True}), 200
 
