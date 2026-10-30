@@ -12,8 +12,8 @@ async function request(path: string, init: RequestInit = {}) {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}), ...init.headers },
   });
-  const data = await response.json().catch(() => ({})) as { error?: string; user?: BackendUser; csrfToken?: string };
-  if (!response.ok) throw Object.assign(new Error(data.error ?? `Request failed (${response.status})`), { status: response.status });
+  const data = await response.json().catch(() => ({})) as { error?: string; field?: string; user?: BackendUser; csrfToken?: string };
+  if (!response.ok) throw Object.assign(new Error(data.error ?? `Request failed (${response.status})`), { status: response.status, field: data.field });
   if (data.csrfToken) csrfToken = data.csrfToken;
   return data;
 }

@@ -9,6 +9,10 @@ export type RegistrationErrors = Partial<Record<keyof RegistrationFormValues, st
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+export function isValidEmail(email: string): boolean {
+  return EMAIL_PATTERN.test(email.trim());
+}
+
 export function validateRegistration(values: RegistrationFormValues): RegistrationErrors {
   const errors: RegistrationErrors = {};
 
@@ -18,7 +22,7 @@ export function validateRegistration(values: RegistrationFormValues): Registrati
 
   if (!values.email.trim()) {
     errors.email = "Email is required.";
-  } else if (!EMAIL_PATTERN.test(values.email.trim())) {
+  } else if (!isValidEmail(values.email)) {
     errors.email = "Enter a valid email address.";
   }
 

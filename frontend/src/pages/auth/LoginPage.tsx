@@ -6,6 +6,7 @@ import { loginUser } from "./loginService";
 import type { LoginValues } from "./loginService";
 import { useAuth } from "./authContext";
 import { normalizeEmail } from "./mockUserStore";
+import { isValidEmail } from "./validateRegistration";
 
 
 type LoginErrors = Partial<Record<keyof LoginValues, string>>;
@@ -20,6 +21,7 @@ const FIELDS: { name: keyof LoginValues; label: string; type: string }[] = [
 function validateLogin(values: LoginValues): LoginErrors {
   const errors: LoginErrors = {};
   if (!values.email.trim()) errors.email = "Email is required.";
+  else if (!isValidEmail(values.email)) errors.email = "Enter a valid email address.";
   if (!values.password) errors.password = "Password is required.";
   return errors;
 }

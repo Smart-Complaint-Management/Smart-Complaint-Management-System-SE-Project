@@ -5,6 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from werkzeug.security import check_password_hash, generate_password_hash
 import secrets
+import re
 
 from auth import current_user, require_admin
 from config import Config
@@ -82,13 +83,21 @@ def register():
     full_name = payload.get("fullName")
     email = payload.get("email")
     password = payload.get("password")
-    if not all(isinstance(value, str) for value in (full_name, email, password)):
-        return jsonify({"error": "Full name, email and password are required."}), 400
+    if not isinstance(full_name, str) or not full_name.strip():
+        return jsonify({"error": "Full name is required.", "field": "fullName"}), 400
+    if len(full_name.strip()) > 100:
+        return jsonify({"error": "Full name must be 100 characters or fewer.", "field": "fullName"}), 400
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({"error": "Email is required.", "field": "email"}), 400
     full_name, email = full_name.strip(), email.strip().lower()
-    if not full_name or len(full_name) > 100 or "@" not in email or len(email) > 255:
-        return jsonify({"error": "Please provide valid registration details."}), 400
+    if len(email) > 255 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        return jsonify({"error": "Enter a valid email address.", "field": "email"}), 400
+    if not isinstance(password, str) or not password:
+        return jsonify({"error": "Password is required.", "field": "password"}), 400
     if len(password) < 8:
-        return jsonify({"error": "Password must contain at least 8 characters."}), 400
+        return jsonify({"error": "Password must contain at least 8 characters.", "field": "password"}), 400
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        return jsonify({"error": "Password must contain a letter and a number.", "field": "password"}), 400
     try:
         with db.session.begin():
             db.session.execute(text(
@@ -98,7 +107,7 @@ def register():
     except Exception as error:
         db.session.rollback()
         if "unique" in str(error).lower() or "duplicate" in str(error).lower():
-            return jsonify({"error": "An account with this email already exists."}), 409
+            return jsonify({"error": "An account with this email already exists.", "field": "email"}), 409
         app.logger.exception("Registration failed")
         return jsonify({"error": "Could not create account."}), 500
     return jsonify({"created": True}), 201
