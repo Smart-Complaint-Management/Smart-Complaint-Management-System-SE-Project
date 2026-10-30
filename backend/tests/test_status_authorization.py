@@ -175,6 +175,58 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         response = self.client.get('/complaints/1/status')
         self.assertEqual(response.status_code, 401)
 
+    def test_status_history_for_unknown_complaint_is_404(self):
+        self.login('user@example.test', 'UserPass123')
+        response = self.client.get('/complaints/999/status')
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json['error'], 'Complaint not found.')
+
+    def test_status_history_without_updates_returns_empty_list(self):
+        self.login('user@example.test', 'UserPass123')
+        response = self.client.get('/complaints/1/status')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {'status': 'submitted', 'updates': []})
+
+    def test_notifications_are_ordered_newest_first(self):
+        self.login('admin@example.test', 'AdminPass123')
+        with app.app_context():
+            db.session.execute(text(
+                "INSERT INTO notifications "
+                "(id, user_id, complaint_id, event_key, event_type, title, message, created_at) "
+                "VALUES (1, 2, 2, 'older', 'status_update', 'Older', 'Older event', '2025-01-01 10:00:00'), "
+                "(2, 2, 2, 'newer', 'status_update', 'Newer', 'Newer event', '2025-01-02 10:00:00')"
+            ))
+            db.session.commit()
+        response = self.client.get('/notifications')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['title'] for item in response.json], ['Newer', 'Older'])
+
+    def test_malformed_status_requests_are_rejected(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        headers = {'X-CSRF-Token': token}
+        malformed = [({}, 'A status value is required.'),
+                     ({'status': 3}, 'A status value is required.'),
+                     (None, 'A status value is required.')]
+        for payload, message in malformed:
+            with self.subTest(payload=payload):
+                response = self.client.patch('/complaints/1/status', json=payload, headers=headers)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json['error'], message)
+        self.assertEqual(self.status(), 'submitted')
+        self.assertEqual(self.notifications(), [])
+
+    def test_status_update_for_nonexistent_complaint_is_404(self):
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        response = self.client.patch('/complaints/999/status', json={'status': 'in_progress'},
+                                     headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json['error'], 'Complaint not found.')
+        with app.app_context():
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_history')).scalar(), 0)
+        self.assertEqual(self.notifications(), [])
+
     def test_unchanged_status_does_not_create_notification_or_duplicate(self):
         self.login('admin@example.test', 'AdminPass123')
         token = self.client.get('/auth/me').json['csrfToken']
