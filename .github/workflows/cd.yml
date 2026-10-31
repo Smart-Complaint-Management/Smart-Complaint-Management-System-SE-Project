@@ -69,7 +69,6 @@ jobs:
           done
 
       - name: Deploy frontend to Vercel production
-        working-directory: frontend
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
