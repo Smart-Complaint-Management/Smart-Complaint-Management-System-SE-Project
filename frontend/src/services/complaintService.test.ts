@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getAdminAuditEvents, ADMIN_AUDIT_STORAGE_KEY } from './adminAuditService';
 import type { AuthSession } from '@/pages/auth/authContext';
 import type { AppNotification, Complaint, ComplaintUpdate } from '@/types';
 import {
@@ -7,6 +8,7 @@ import {
   getMyNotifications,
   submitComplaintEscalation,
   updateComplaintStatus,
+  reviewComplaintEscalation,
 } from './complaintService';
 
 const COMPLAINTS_KEY = 'scms_complaints';
@@ -224,5 +226,75 @@ describe('localStorage-backed complaint services', () => {
     expect(() => updateComplaintStatus('CMP-2026-001', 'in_progress', 'Test Admin', adminSession))
       .toThrow('Could not save this change in browser storage. Your previous data was restored where possible.');
     expect(keys.map((key) => localStorage.getItem(key))).toEqual(before);
+  });
+
+  it('records an audit event when an admin updates complaint status', () => {
+    seedStorage([complaint({ id: 'CMP-2026-001', status: 'submitted' })]);
+    const result = updateComplaintStatus('CMP-2026-001', 'in_progress', 'Test Admin', adminSession);
+    expect(result.outcome).toBe('updated');
+
+    const auditEvents = getAdminAuditEvents('CMP-2026-001');
+    expect(auditEvents.length).toBe(1);
+    expect(auditEvents[0].action).toBe('STATUS_CHANGED');
+    expect(auditEvents[0].previousValue).toBe('submitted');
+    expect(auditEvents[0].newValue).toBe('in_progress');
+    expect(auditEvents[0].actor.role).toBe('admin');
+  });
+
+  it('records an escalation review audit event when an admin reviews an escalated complaint', () => {
+    seedStorage([complaint({ id: 'CMP-2026-001', isEscalated: true })]);
+    const result = reviewComplaintEscalation('CMP-2026-001', 'Prioritized with lab technician', adminSession);
+    expect(result.outcome).toBe('reviewed');
+
+    const auditEvents = getAdminAuditEvents('CMP-2026-001');
+    expect(auditEvents.length).toBe(1);
+    expect(auditEvents[0].action).toBe('ESCALATION_REVIEWED');
+    expect(auditEvents[0].newValue).toBe('Reviewed');
+    expect(auditEvents[0].details).toBe('Prioritized with lab technician');
+  });
+
+  it('rolls back complaint status and notifications when audit write fails (SCMS-82 atomicity)', () => {
+    seedStorage([complaint({ id: 'CMP-2026-001', status: 'submitted' })]);
+    const originalSetItem = Storage.prototype.setItem;
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === ADMIN_AUDIT_STORAGE_KEY) {
+        throw new Error('Audit disk quota exceeded');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    expect(() => updateComplaintStatus('CMP-2026-001', 'in_progress', 'Test Admin', adminSession))
+      .toThrow('Could not save this change in browser storage. Your previous data was restored where possible.');
+
+    // Status MUST remain rolled back to submitted
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)[0].status).toBe('submitted');
+    // Updates and notifications MUST remain empty
+    expect(stored<ComplaintUpdate[]>(UPDATES_KEY)).toEqual([]);
+    expect(stored<AppNotification[]>(NOTIFICATIONS_KEY)).toEqual([]);
+    // Audit log must not contain unpersisted event
+    expect(getAdminAuditEvents('CMP-2026-001')).toEqual([]);
+  });
+
+  it('rolls back escalation review update when audit write fails (SCMS-82 atomicity)', () => {
+    seedStorage([complaint({ id: 'CMP-2026-001', isEscalated: true, updatedAt: '2026-01-01T10:00:00.000Z' })]);
+    const originalSetItem = Storage.prototype.setItem;
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === ADMIN_AUDIT_STORAGE_KEY) {
+        throw new Error('Audit disk quota exceeded');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    expect(() => reviewComplaintEscalation('CMP-2026-001', 'Reviewed and dispatched team', adminSession))
+      .toThrow('Could not save this change in browser storage. Your previous data was restored where possible.');
+
+    // Complaint must remain rolled back with original updatedAt
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)[0].updatedAt).toBe('2026-01-01T10:00:00.000Z');
+    // Updates MUST remain empty
+    expect(stored<ComplaintUpdate[]>(UPDATES_KEY)).toEqual([]);
+    // Audit log must not contain unpersisted event
+    expect(getAdminAuditEvents('CMP-2026-001')).toEqual([]);
   });
 });

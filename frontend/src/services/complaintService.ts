@@ -15,6 +15,12 @@ import type {
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
+import {
+  createAuditEvent,
+  getAdminAuditEvents,
+  ADMIN_AUDIT_STORAGE_KEY,
+} from './adminAuditService';
+import { migrateComplaintData } from './dataMigrationService';
 
 export interface NewComplaintInput {
   subject: string;
@@ -142,6 +148,13 @@ export function classifyComplaintPriority(
  * Existing mock records are used when no saved records exist.
  */
 function readComplaints(): Complaint[] {
+  if (isBrowser()) {
+    try {
+      migrateComplaintData();
+    } catch (error) {
+      console.warn('Data migration check failed on readComplaints:', error);
+    }
+  }
   if (!isBrowser()) {
     return mockComplaints;
   }
@@ -294,6 +307,10 @@ export async function createComplaint(
 /**
  * Return all complaints.
  */
+export function getComplaint(id: string): Complaint | undefined {
+  return readComplaints().find((c) => c.id === id);
+}
+
 export function getComplaints(): Complaint[] {
   return readComplaints();
 }
@@ -497,6 +514,7 @@ export function updateComplaintStatus(
     timestamp,
   };
 
+  const previousStatus = complaint.status;
   complaint.status = status;
   complaint.updatedAt = timestamp;
 
@@ -512,9 +530,99 @@ export function updateComplaintStatus(
       : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
     read: false, timestamp: update.timestamp,
   });
-  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates], [NOTIFICATIONS_STORAGE_KEY, notifications]]);
+  const currentAudit = getAdminAuditEvents();
+  const auditEvent = createAuditEvent({
+    complaintId,
+    action: 'STATUS_CHANGED',
+    actor: {
+      name: session.fullName || author,
+      email: session.email || '',
+      role: session.role || 'admin',
+    },
+    previousValue: previousStatus,
+    newValue: status,
+    timestamp,
+    details: `Status changed from ${statusLabels[previousStatus] ?? previousStatus} to ${statusLabels[status] ?? status}`,
+  });
+  const updatedAudit = [auditEvent, ...currentAudit];
+
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+    [NOTIFICATIONS_STORAGE_KEY, notifications],
+    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+  ]);
 
   return { outcome: 'updated', update };
+}
+
+export type ReviewEscalationResult =
+  | { outcome: 'reviewed'; update: ComplaintUpdate }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'not_found' }
+  | { outcome: 'not_escalated' };
+
+/**
+ * Record an administrative escalation review action.
+ */
+export function reviewComplaintEscalation(
+  complaintId: string,
+  actionNote: string,
+  session: AuthSession | null,
+): ReviewEscalationResult {
+  if (session?.role !== 'admin') {
+    return { outcome: 'unauthorized' };
+  }
+
+  const complaints = [...readComplaints()].map((item) => ({ ...item }));
+  const complaint = complaints.find((item) => item.id === complaintId);
+
+  if (!complaint) {
+    return { outcome: 'not_found' };
+  }
+
+  if (!complaint.isEscalated) {
+    return { outcome: 'not_escalated' };
+  }
+
+  const timestamp = new Date().toISOString();
+  const updates = [...readUpdates()];
+
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status: complaint.status,
+    message: `Admin escalation review: ${actionNote.trim()}`,
+    author: session.fullName,
+    timestamp,
+  };
+
+  complaint.updatedAt = timestamp;
+  updates.push(update);
+
+  const currentAudit = getAdminAuditEvents();
+  const auditEvent = createAuditEvent({
+    complaintId,
+    action: 'ESCALATION_REVIEWED',
+    actor: {
+      name: session.fullName,
+      email: session.email || '',
+      role: session.role,
+    },
+    previousValue: 'Escalated',
+    newValue: 'Reviewed',
+    timestamp,
+    details: actionNote.trim(),
+  });
+  const updatedAudit = [auditEvent, ...currentAudit];
+
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+  ]);
+
+  return { outcome: 'reviewed', update };
 }
 
 export type SubmitEscalationResult =

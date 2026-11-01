@@ -1,62 +1,46 @@
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ClipboardList, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, ClipboardList, CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
-import { mockComplaints } from '@/data/mockData';
+import { AdminAuditHistory } from '@/components/admin/AdminAuditHistory';
 import { formatDate } from '@/services/api';
-
-const ASSIGNEES = [
-  'IT Support Desk',
-  'Facilities Maintenance',
-  'Registrar Office',
-  'Finance Office',
-];
-
-const ASSIGNMENTS_STORAGE_KEY = 'scms-complaint-assignments';
-const AUDIT_STORAGE_KEY = 'scms-assignment-audit';
-
-type AuditEntry = {
-  complaintId: string;
-  action: 'ASSIGNED' | 'REASSIGNED';
-  previousTeam: string | null;
-  newTeam: string;
-  timestamp: string;
-};
-
-function loadSavedComplaints() {
-  try {
-    const saved = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
-
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    }
-  } catch (error) {
-    console.error('Could not load saved assignments:', error);
-  }
-
-  return mockComplaints.map((complaint) => ({ ...complaint }));
-}
+import {
+  getAssignmentComplaints,
+  assignComplaint,
+} from '@/services/adminAssignmentService';
+import {
+  ALLOWED_ASSIGNMENT_TEAMS,
+  type AuditActor,
+} from '@/types/admin';
+import { useAuth } from '@/pages/auth/authContext';
+import type { Complaint } from '@/types';
 
 export function AdminAssignmentsPage() {
-  const [complaints, setComplaints] = useState(loadSavedComplaints);
+  const { session } = useAuth();
+  const [complaints, setComplaints] = useState<Complaint[]>(getAssignmentComplaints);
   const [selectedTeams, setSelectedTeams] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState('');
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [auditRefreshKey, setAuditRefreshKey] = useState(0);
+
+  // Sync state if complaints change
+  const reloadData = () => {
+    setComplaints(getAssignmentComplaints());
+  };
+
+  useEffect(() => {
+    reloadData();
+  }, []);
 
   const unassigned = complaints.filter(
-    (complaint) => complaint.assignedTo === null
+    (c) => c.assignedTo === null || c.assignedTo.trim() === ''
   );
 
   const assigned = complaints.filter(
-    (complaint) => complaint.assignedTo !== null
+    (c) => c.assignedTo !== null && c.assignedTo.trim() !== ''
   );
 
   function handleTeamChange(complaintId: string, team: string) {
@@ -64,82 +48,57 @@ export function AdminAssignmentsPage() {
       ...previous,
       [complaintId]: team,
     }));
-
-    setMessage('');
+    setFeedback(null);
   }
 
   function handleAssign(complaintId: string) {
     const team = selectedTeams[complaintId];
 
     if (!team) {
-      setMessage('Please select a team before assigning the complaint.');
+      setFeedback({
+        type: 'error',
+        text: 'Please select a team before assigning the complaint.',
+      });
       return;
     }
 
-    const complaint = complaints.find(
-      (item) => item.id === complaintId
-    );
-
-    if (!complaint) {
-      setMessage('Complaint not found.');
-      return;
-    }
-
-    const previousTeam = complaint.assignedTo;
-
-    const updatedComplaints = complaints.map((item) =>
-      item.id === complaintId
-        ? { ...item, assignedTo: team }
-        : item
-    );
-
-    const auditEntry: AuditEntry = {
-      complaintId,
-      action: previousTeam ? 'REASSIGNED' : 'ASSIGNED',
-      previousTeam,
-      newTeam: team,
-      timestamp: new Date().toISOString(),
+    const actor: AuditActor = {
+      name: session?.fullName || 'Administrator',
+      email: session?.email || 'admin@university.edu',
+      role: session?.role || 'admin',
     };
 
-    try {
-      const savedAudit = localStorage.getItem(AUDIT_STORAGE_KEY);
-      const parsedAudit: unknown = savedAudit
-        ? JSON.parse(savedAudit)
-        : [];
+    const result = assignComplaint({
+      complaintId,
+      team,
+      actor,
+    });
 
-      const existingAudit: AuditEntry[] = Array.isArray(parsedAudit)
-        ? parsedAudit
-        : [];
-
-      // Save both records before updating the page.
-      localStorage.setItem(
-        ASSIGNMENTS_STORAGE_KEY,
-        JSON.stringify(updatedComplaints)
-      );
-
-      localStorage.setItem(
-        AUDIT_STORAGE_KEY,
-        JSON.stringify([...existingAudit, auditEntry])
-      );
-
-      setComplaints(updatedComplaints);
-
-      setSelectedTeams((previous) => {
-        const updated = { ...previous };
-        delete updated[complaintId];
-        return updated;
+    if (result.outcome === 'assigned' || result.outcome === 'reassigned') {
+      reloadData();
+      setSelectedTeams((prev) => {
+        const copy = { ...prev };
+        delete copy[complaintId];
+        return copy;
       });
-
-      setMessage(
-        previousTeam
-          ? 'Complaint reassigned successfully.'
-          : 'Complaint assigned successfully.'
-      );
-    } catch (error) {
-      console.error('Could not save assignment:', error);
-      setMessage(
-        'Could not save the assignment. Check your browser storage and try again.'
-      );
+      setFeedback({
+        type: 'success',
+        text:
+          result.outcome === 'assigned'
+            ? `Complaint ${complaintId} successfully assigned to ${team}.`
+            : `Complaint ${complaintId} successfully reassigned to ${team}.`,
+      });
+      setAuditRefreshKey((k) => k + 1);
+    } else if (result.outcome === 'unchanged') {
+      setFeedback({
+        type: 'error',
+        text: `Complaint ${complaintId} is already assigned to ${team}.`,
+      });
+    } else {
+      setFeedback({
+        type: 'error',
+        text: result.error || 'Unable to update assignment.',
+      });
     }
   }
 
@@ -147,20 +106,29 @@ export function AdminAssignmentsPage() {
     <div>
       <PageHeader
         title="Assignments"
-        description="Review complaints and assign them to the appropriate team."
+        description="Review complaints and assign them to the appropriate university department or team."
       />
 
-      {message && (
+      {feedback && (
         <div
           role="status"
           aria-live="polite"
-          className="mb-6 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+          className={`mb-6 flex items-center gap-2 rounded-lg border p-3 text-sm ${
+            feedback.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-rose-200 bg-rose-50 text-rose-800'
+          }`}
         >
-          <CheckCircle2 className="h-5 w-5 shrink-0" />
-          {message}
+          {feedback.type === 'success' ? (
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+          ) : (
+            <AlertCircle className="h-5 w-5 shrink-0" />
+          )}
+          {feedback.text}
         </div>
       )}
 
+      {/* Awaiting Assignment */}
       <section className="mb-8">
         <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-ink-900">
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">
@@ -193,7 +161,7 @@ export function AdminAssignmentsPage() {
                   </div>
 
                   <Link
-                    to={'/complaints/' + complaint.id}
+                    to={`/complaints/${complaint.id}`}
                     className="mt-0.5 block text-sm font-medium text-ink-800 hover:text-accent-700"
                   >
                     {complaint.subject}
@@ -214,13 +182,12 @@ export function AdminAssignmentsPage() {
                     onChange={(event) =>
                       handleTeamChange(complaint.id, event.target.value)
                     }
-                    aria-label={'Select team for complaint ' + complaint.id}
+                    aria-label={`Select team for complaint ${complaint.id}`}
                   >
                     <option value="" disabled>
                       Select team...
                     </option>
-
-                    {ASSIGNEES.map((team) => (
+                    {ALLOWED_ASSIGNMENT_TEAMS.map((team) => (
                       <option key={team} value={team}>
                         {team}
                       </option>
@@ -242,6 +209,7 @@ export function AdminAssignmentsPage() {
         )}
       </section>
 
+      {/* Currently Assigned */}
       <section>
         <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-ink-900">
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">
@@ -266,7 +234,7 @@ export function AdminAssignmentsPage() {
                 className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
               >
                 <Link
-                  to={'/complaints/' + complaint.id}
+                  to={`/complaints/${complaint.id}`}
                   className="group min-w-0 flex-1"
                 >
                   <span className="font-mono text-xs font-medium text-ink-400">
@@ -291,13 +259,12 @@ export function AdminAssignmentsPage() {
                     onChange={(event) =>
                       handleTeamChange(complaint.id, event.target.value)
                     }
-                    aria-label={'Reassign complaint ' + complaint.id}
+                    aria-label={`Reassign complaint ${complaint.id}`}
                   >
                     <option value="" disabled>
                       Reassign team...
                     </option>
-
-                    {ASSIGNEES.map((team) => (
+                    {ALLOWED_ASSIGNMENT_TEAMS.map((team) => (
                       <option key={team} value={team}>
                         {team}
                       </option>
@@ -317,8 +284,8 @@ export function AdminAssignmentsPage() {
                   </button>
 
                   <Link
-                    to={'/complaints/' + complaint.id}
-                    aria-label={'View complaint ' + complaint.id}
+                    to={`/complaints/${complaint.id}`}
+                    aria-label={`View complaint ${complaint.id}`}
                     className="inline-flex items-center"
                   >
                     <ArrowRight className="h-4 w-4 text-ink-300 hover:text-accent-500" />
@@ -330,67 +297,13 @@ export function AdminAssignmentsPage() {
         )}
       </section>
 
+      {/* Reusable Audit Trail Component */}
       <section className="card mt-8 p-5">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
-          Recent Assignment Activity
+          Recent Administrative Activity
         </h2>
-
-        <AssignmentAuditHistory />
+        <AdminAuditHistory key={auditRefreshKey} maxEntries={20} />
       </section>
-
-      <p className="mt-4 text-xs text-ink-400">
-        Demo mode: assignments and audit history are saved in this browser.
-        They are not yet stored in a shared database.
-      </p>
-    </div>
-  );
-}
-
-function AssignmentAuditHistory() {
-  const [auditEntries] = useState<AuditEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem(AUDIT_STORAGE_KEY);
-      const parsed: unknown = saved ? JSON.parse(saved) : [];
-
-      return Array.isArray(parsed) ? parsed.reverse() : [];
-    } catch (error) {
-      console.error('Could not load assignment history:', error);
-      return [];
-    }
-  });
-
-  if (auditEntries.length === 0) {
-    return (
-      <p className="text-sm text-ink-500">
-        No assignment activity recorded yet. Assign or reassign a complaint
-        to create an audit entry.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {auditEntries.map((entry, index) => (
-        <div
-          key={entry.complaintId + '-' + entry.timestamp + '-' + index}
-          className="border-b border-ink-100 pb-3 last:border-0 last:pb-0"
-        >
-          <p className="text-sm font-medium text-ink-800">
-            {entry.action === 'ASSIGNED' ? 'Assigned' : 'Reassigned'}{' '}
-            {entry.complaintId}
-          </p>
-
-          <p className="mt-1 text-sm text-ink-600">
-            {entry.previousTeam
-              ? entry.previousTeam + ' → ' + entry.newTeam
-              : 'Assigned to ' + entry.newTeam}
-          </p>
-
-          <p className="mt-1 text-xs text-ink-400">
-            {new Date(entry.timestamp).toLocaleString()}
-          </p>
-        </div>
-      ))}
     </div>
   );
 }

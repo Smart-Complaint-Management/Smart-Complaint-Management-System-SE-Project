@@ -1,32 +1,10 @@
-
 import type { Complaint } from '@/types';
-import { mockComplaints } from '@/data/mockData';
-
-const ASSIGNMENTS_STORAGE_KEY = 'scms-complaint-assignments';
+import { getReportComplaints } from '@/services/adminReportService';
 
 /**
- * Returns the latest saved complaints from browser localStorage.
- * Falls back to the original mock complaints if no saved data exists.
- *
- * Note: This is demo persistence, not a shared backend database.
+ * Returns the latest saved complaints from the unified browser storage.
+ * Synchronizes with primary `scms_complaints` and performs safe legacy migration (SCMS-83).
  */
 export function getAdminComplaints(): Complaint[] {
-  try {
-    const saved = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
-
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-
-      if (Array.isArray(parsed)) {
-        return parsed as Complaint[];
-      }
-    }
-  } catch (error) {
-    console.error(
-      'Could not load saved complaint assignments:',
-      error,
-    );
-  }
-
-  return mockComplaints.map((complaint) => ({ ...complaint }));
+  return getReportComplaints();
 }
