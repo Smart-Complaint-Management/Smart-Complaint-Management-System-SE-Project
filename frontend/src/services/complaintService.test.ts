@@ -93,6 +93,74 @@ describe('localStorage-backed complaint services', () => {
     expect(complaints.find((item) => item.id === 'CMP-2026-001')?.subject).toBe('Network access');
     expect(complaints.find((item) => item.id === 'CMP-unknown')).toBeUndefined();
   });
+  
+  
+  it('stores the selected category, priority, and description correctly', async () => {
+    const created = await createComplaint({
+      subject: 'Projector not working',
+      category: 'facilities',
+      priority: 'high',
+      description: 'The projector in the classroom is not working.',
+      submittedBy: userSession.fullName,
+    });
+
+    expect(created).toMatchObject({
+      subject: 'Projector not working',
+      category: 'facilities',
+      priority: 'high',
+      description: 'The projector in the classroom is not working.',
+      submittedBy: userSession.fullName,
+    });
+
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)).toContainEqual(
+      expect.objectContaining({
+        id: created.id,
+        category: 'facilities',
+        priority: 'high',
+      }),
+    );
+  });
+
+  it('assigns unique IDs to separately registered complaints', async () => {
+    const first = await createComplaint({
+      subject: 'First complaint',
+      category: 'academic',
+      priority: 'low',
+      description: 'First description.',
+      submittedBy: userSession.fullName,
+    });
+
+    const second = await createComplaint({
+      subject: 'Second complaint',
+      category: 'facilities',
+      priority: 'medium',
+      description: 'Second description.',
+      submittedBy: userSession.fullName,
+    });
+
+    expect(first.id).toBeTruthy();
+    expect(second.id).toBeTruthy();
+    expect(first.id).not.toBe(second.id);
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)).toHaveLength(3);
+  });
+
+  it('does not overwrite previously stored complaints during registration', async () => {
+    const existing = stored<Complaint[]>(COMPLAINTS_KEY)[0];
+
+    await createComplaint({
+      subject: 'New complaint',
+      category: 'academic',
+      priority: 'medium',
+      description: 'A new complaint.',
+      submittedBy: userSession.fullName,
+    });
+
+    const saved = stored<Complaint[]>(COMPLAINTS_KEY);
+
+    expect(saved).toHaveLength(2);
+    expect(saved).toContainEqual(existing);
+  });
+
   it('creates a complaint and persists its confirmation details', async () => {
   const created = await createComplaint({
     subject: 'Wi-Fi not working',
@@ -100,8 +168,9 @@ describe('localStorage-backed complaint services', () => {
     priority: 'medium',
     description: 'Unable to connect to campus Wi-Fi.',
     submittedBy: userSession.fullName,
+  
   });
-
+  
   expect(created.id).toBeTruthy();
   expect(created.status).toBe('submitted');
   expect(created.subject).toBe('Wi-Fi not working');
