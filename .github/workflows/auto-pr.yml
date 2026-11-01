@@ -1,0 +1,111 @@
+name: Auto PR
+
+on:
+  push:
+    branches:
+      - '**'
+      - '!main'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-pr-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  create-pr:
+    name: Create Pull Request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for existing PR or create new PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          echo "Evaluating branch: ${BRANCH} for repository: ${REPO}"
+
+          # 1. Fetch origin main to determine commits ahead/behind
+          git fetch origin main:refs/remotes/origin/main || true
+          AHEAD_COUNT=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+
+          if [ "${AHEAD_COUNT}" -eq 0 ]; then
+            echo "Branch '${BRANCH}' has 0 commits ahead of main. Skipping pull request creation."
+            exit 0
+          fi
+
+          echo "Branch has ${AHEAD_COUNT} commit(s) ahead of origin/main."
+
+          # 2. Check if an open PR already exists for this branch targeting main
+          EXISTING_PR_JSON=$(gh pr list \
+            --repo "${REPO}" \
+            --head "${BRANCH}" \
+            --base main \
+            --state open \
+            --json number,url,title \
+            --jq '.[0] // empty')
+
+          if [ -n "${EXISTING_PR_JSON}" ]; then
+            EXISTING_PR_NUM=$(echo "${EXISTING_PR_JSON}" | jq -r '.number')
+            EXISTING_PR_URL=$(echo "${EXISTING_PR_JSON}" | jq -r '.url')
+            echo "An open pull request already exists for ${BRANCH}: #${EXISTING_PR_NUM} (${EXISTING_PR_URL})"
+            echo "Skipping creation to prevent duplicate pull requests."
+            exit 0
+          fi
+
+          # 3. Generate PR title and structured description from actual commits
+          LATEST_SUBJECT=$(git log -1 --format="%s")
+          COMMIT_LIST=$(git log origin/main..HEAD --format="- %h: %s")
+
+          PR_TITLE="${LATEST_SUBJECT}"
+
+          PR_BODY=$(cat <<EOF
+## Pull Request Summary
+
+Automatically generated pull request from branch \`${BRANCH}\` into \`main\`.
+
+### Commits (${AHEAD_COUNT})
+${COMMIT_LIST}
+
+### Automated Quality Checks
+The following CI status checks will run automatically on this pull request:
+- **Frontend / Typecheck**: TypeScript compiler check (\`tsc --noEmit\`)
+- **Frontend / Lint**: ESLint code quality & style checks
+- **Frontend / Test**: Vitest unit & integration test suites
+- **Frontend / Build**: Vite production client bundle compilation
+- **Backend checks**: Python syntax and unit tests
+
+### Merge Safeguards
+- Direct push to \`main\` is prohibited.
+- This pull request requires code review approval and passing CI checks before merging.
+- Auto-merge will only execute once all required reviews and status checks pass, subject to repository branch protection settings.
+EOF
+)
+
+          echo "Creating pull request..."
+          PR_URL=$(gh pr create \
+            --repo "${REPO}" \
+            --base main \
+            --head "${BRANCH}" \
+            --title "${PR_TITLE}" \
+            --body "${PR_BODY}")
+
+          echo "Successfully created pull request: ${PR_URL}"
+
+          # 4. Attempt to configure auto-merge if repository settings permit it
+          # GitHub auto-merge will ONLY merge after all required reviews and status checks pass.
+          echo "Checking auto-merge capability..."
+          if gh pr merge "${PR_URL}" --auto --squash 2>/dev/null; then
+            echo "Auto-merge enabled for ${PR_URL} (will merge automatically once required reviews and checks pass)."
+          else
+            echo "Auto-merge is not enabled in repository settings or requires manual configuration. PR remains open for review."
+          fi
