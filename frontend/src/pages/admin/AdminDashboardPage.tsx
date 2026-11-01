@@ -14,6 +14,10 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { ComplaintTable } from '@/components/ui/ComplaintTable';
 import { AdminMetricCards } from '@/components/admin/AdminMetricCards';
 import { getReportComplaints } from '@/services/adminReportService';
+import {
+  computeDashboardMetrics,
+  filterDashboardComplaints,
+} from '@/services/adminDashboardService';
 import { statusLabels, priorityLabels } from '@/data/mockData';
 import type { Complaint } from '@/types';
 
@@ -34,7 +38,7 @@ export function AdminDashboardPage() {
     }
   }, []);
 
-  // Performance-optimized (SCMS-81): Compute core metrics in a single memoized pass
+  // Performance-optimized (SCMS-81): Compute core metrics in a single memoized pass using shared service
   const {
     total,
     openCount,
@@ -44,79 +48,13 @@ export function AdminDashboardPage() {
     recentComplaints,
     needsAttentionComplaints,
     escalatedList,
-  } = useMemo(() => {
-    let open = 0;
-    let resolved = 0;
-    let escalated = 0;
-    const unassigned: Complaint[] = [];
-    const attention: Complaint[] = [];
-    const escalatedItems: Complaint[] = [];
+  } = useMemo(() => computeDashboardMetrics(complaints), [complaints]);
 
-    for (const c of complaints) {
-      if (
-        c.status === 'submitted' ||
-        c.status === 'under_review' ||
-        c.status === 'in_progress'
-      ) {
-        open++;
-      } else if (c.status === 'resolved') {
-        resolved++;
-      }
-
-      if (c.isEscalated) {
-        escalated++;
-        escalatedItems.push(c);
-      }
-
-      const isUnassigned = c.assignedTo === null || c.assignedTo.trim() === '';
-      if (isUnassigned) {
-        unassigned.push(c);
-      }
-
-      if (c.priority === 'critical' || (c.priority === 'high' && isUnassigned)) {
-        attention.push(c);
-      }
-    }
-
-    const recent = [...complaints]
-      .sort(
-        (a, b) =>
-          new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
-      )
-      .slice(0, 5);
-
-    return {
-      total: complaints.length,
-      openCount: open,
-      resolvedCount: resolved,
-      escalatedCount: escalated,
-      unassignedComplaints: unassigned,
-      recentComplaints: recent,
-      needsAttentionComplaints: attention.slice(0, 5),
-      escalatedList: escalatedItems.slice(0, 5),
-    };
-  }, [complaints]);
-
-  // Memoized search & filter logic (SCMS-41, SCMS-81)
-  const filteredComplaints = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
-    return complaints.filter((c) => {
-      const matchesSearch =
-        query === '' ||
-        c.id.toLowerCase().includes(query) ||
-        c.subject.toLowerCase().includes(query) ||
-        c.description.toLowerCase().includes(query);
-
-      const matchesStatus =
-        statusFilter === 'all' || c.status === statusFilter;
-
-      const matchesPriority =
-        priorityFilter === 'all' || c.priority === priorityFilter;
-
-      return matchesSearch && matchesStatus && matchesPriority;
-    });
-  }, [complaints, searchQuery, statusFilter, priorityFilter]);
+  // Memoized search & filter logic using shared service (SCMS-41, SCMS-81)
+  const filteredComplaints = useMemo(
+    () => filterDashboardComplaints(complaints, searchQuery, statusFilter, priorityFilter),
+    [complaints, searchQuery, statusFilter, priorityFilter]
+  );
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||

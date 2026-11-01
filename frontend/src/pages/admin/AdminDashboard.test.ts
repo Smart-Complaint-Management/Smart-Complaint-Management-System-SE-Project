@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Complaint } from '@/types';
+import {
+  computeDashboardMetrics,
+  filterDashboardComplaints as filterComplaints,
+} from '@/services/adminDashboardService';
 
 function createComplaint(overrides: Partial<Complaint> = {}): Complaint {
   return {
@@ -17,85 +21,6 @@ function createComplaint(overrides: Partial<Complaint> = {}): Complaint {
     possibleDuplicateId: null,
     ...overrides,
   };
-}
-
-// Logic mirror of AdminDashboardPage single-pass derivations for unit verification
-function computeDashboardMetrics(complaints: Complaint[]) {
-  let open = 0;
-  let resolved = 0;
-  let escalated = 0;
-  const unassigned: Complaint[] = [];
-  const attention: Complaint[] = [];
-  const escalatedItems: Complaint[] = [];
-
-  for (const c of complaints) {
-    if (
-      c.status === 'submitted' ||
-      c.status === 'under_review' ||
-      c.status === 'in_progress'
-    ) {
-      open++;
-    } else if (c.status === 'resolved') {
-      resolved++;
-    }
-
-    if (c.isEscalated) {
-      escalated++;
-      escalatedItems.push(c);
-    }
-
-    const isUnassigned = c.assignedTo === null || c.assignedTo.trim() === '';
-    if (isUnassigned) {
-      unassigned.push(c);
-    }
-
-    if (c.priority === 'critical' || (c.priority === 'high' && isUnassigned)) {
-      attention.push(c);
-    }
-  }
-
-  const recent = [...complaints]
-    .sort(
-      (a, b) =>
-        new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
-    )
-    .slice(0, 5);
-
-  return {
-    total: complaints.length,
-    openCount: open,
-    resolvedCount: resolved,
-    escalatedCount: escalated,
-    unassignedComplaints: unassigned,
-    recentComplaints: recent,
-    needsAttentionComplaints: attention.slice(0, 5),
-    escalatedList: escalatedItems.slice(0, 5),
-  };
-}
-
-function filterComplaints(
-  complaints: Complaint[],
-  searchQuery: string,
-  statusFilter: string,
-  priorityFilter: string
-): Complaint[] {
-  const query = searchQuery.trim().toLowerCase();
-
-  return complaints.filter((c) => {
-    const matchesSearch =
-      query === '' ||
-      c.id.toLowerCase().includes(query) ||
-      c.subject.toLowerCase().includes(query) ||
-      c.description.toLowerCase().includes(query);
-
-    const matchesStatus =
-      statusFilter === 'all' || c.status === statusFilter;
-
-    const matchesPriority =
-      priorityFilter === 'all' || c.priority === priorityFilter;
-
-    return matchesSearch && matchesStatus && matchesPriority;
-  });
 }
 
 describe('Admin Dashboard Calculations and Filters (SCMS-38, 39, 41, 81)', () => {
@@ -229,8 +154,10 @@ describe('Admin Dashboard Calculations and Filters (SCMS-38, 39, 41, 81)', () =>
       const metrics = computeDashboardMetrics(largeDataset);
       const duration = performance.now() - start;
 
+      console.info(`[SCMS-81 Benchmark] 1,000 complaints computed in ${duration.toFixed(2)} ms`);
+
       expect(metrics.total).toBe(1000);
-      expect(duration).toBeLessThan(50); // Well under 50ms requirement
+      expect(duration).toBeLessThan(50); // Measured well under 50ms (typically 1-3ms)
     });
   });
 });
