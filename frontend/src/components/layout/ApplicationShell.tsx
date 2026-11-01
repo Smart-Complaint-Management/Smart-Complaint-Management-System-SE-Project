@@ -73,7 +73,18 @@ export function ApplicationShell({ children }: ApplicationShellProps) {
       {/* Main content area */}
       <div className="lg:pl-64">
         <Topbar onToggleSidebar={() => setSidebarOpen((v) => !v)} sidebarOpen={sidebarOpen} menuButtonRef={menuButtonRef} />
-        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+
+<div
+  role="note"
+  aria-label="Prototype disclaimer"
+  className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:mx-6 lg:mx-8"
+>
+  <strong>Prototype Notice:</strong> This application is a demonstration
+  prototype. Some features use browser storage (localStorage), and data
+  entered here is not intended for real complaints or sensitive information.
+</div>
+
+<main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {children ?? <Outlet />}
         </main>
       </div>
