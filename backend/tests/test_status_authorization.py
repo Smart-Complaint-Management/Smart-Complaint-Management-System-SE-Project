@@ -277,7 +277,7 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
 
         self.client.post('/auth/logout', headers={'X-CSRF-Token': token})
         self.login('user@example.test', 'UserPass123')
-        own = self.client.get('/notifications?user_id=2')
+        own = self.client.get('/notifications?user_id=1')
         self.assertEqual(own.status_code, 200)
         self.assertEqual([item['complaintId'] for item in own.json], ['1'])
         self.assertEqual([item['type'] for item in own.json], ['status_update'])
