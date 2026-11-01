@@ -295,6 +295,10 @@ export async function createComplaint(
 /**
  * Return all complaints.
  */
+export function getComplaint(id: string): Complaint | undefined {
+  return readComplaints().find((c) => c.id === id);
+}
+
 export function getComplaints(): Complaint[] {
   return readComplaints();
 }
