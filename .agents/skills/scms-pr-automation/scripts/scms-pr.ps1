@@ -10,8 +10,7 @@ $RepoName = "Smart-Complaint-Management-System-SE-Project"
 $RepoFull = "$RepoOwner/$RepoName"
 $BaseBranch = "main"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = (Resolve-Path "$ScriptDir/../../../").Path
+$RepoRoot = (git rev-parse --show-toplevel).Trim()
 $FrontendDir = Join-Path $RepoRoot "frontend"
 
 Write-Host "=== SCMS Pull Request Automation (/scms-pr) ===" -ForegroundColor Cyan

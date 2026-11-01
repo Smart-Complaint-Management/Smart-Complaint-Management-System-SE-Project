@@ -9,8 +9,7 @@ REPO_NAME="Smart-Complaint-Management-System-SE-Project"
 REPO_FULL="${REPO_OWNER}/${REPO_NAME}"
 BASE_BRANCH="main"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../" && pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 FRONTEND_DIR="${REPO_ROOT}/frontend"
 
 echo -e "\033[36m=== SCMS Pull Request Automation (/scms-pr) ===\033[0m\n"
