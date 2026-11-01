@@ -6,7 +6,7 @@ function isBrowser(): boolean {
   return typeof window !== 'undefined';
 }
 
-function generateAuditId(): string {
+export function generateAuditId(): string {
   const timestamp = Date.now();
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   return `AUD-${timestamp}-${random}`;
@@ -51,6 +51,27 @@ export interface RecordAdminActionParams {
 }
 
 /**
+ * Creates a structured AdminAuditEvent without writing to storage.
+ * Does not invent fake emails or administrator names.
+ */
+export function createAuditEvent(params: RecordAdminActionParams): AdminAuditEvent {
+  return {
+    id: generateAuditId(),
+    complaintId: params.complaintId,
+    action: params.action,
+    actor: {
+      name: params.actor?.name?.trim() || 'Unknown',
+      email: params.actor?.email?.trim() || '',
+      role: params.actor?.role || 'unknown',
+    },
+    previousValue: params.previousValue,
+    newValue: params.newValue,
+    timestamp: params.timestamp || new Date().toISOString(),
+    details: params.details,
+  };
+}
+
+/**
  * Record an administrative audit event with rollback protection.
  * Throws if persistence fails to prevent silent loss of audit records.
  */
@@ -61,22 +82,7 @@ export function recordAdminAction(params: RecordAdminActionParams): AdminAuditEv
 
   const existingEvents = getAdminAuditEvents();
   const previousRaw = window.localStorage.getItem(ADMIN_AUDIT_STORAGE_KEY);
-
-  const event: AdminAuditEvent = {
-    id: generateAuditId(),
-    complaintId: params.complaintId,
-    action: params.action,
-    actor: {
-      name: params.actor.name.trim() || 'Administrator',
-      email: params.actor.email.trim() || 'admin@university.edu',
-      role: params.actor.role || 'admin',
-    },
-    previousValue: params.previousValue,
-    newValue: params.newValue,
-    timestamp: params.timestamp || new Date().toISOString(),
-    details: params.details,
-  };
-
+  const event = createAuditEvent(params);
   const updatedEvents = [event, ...existingEvents];
 
   try {

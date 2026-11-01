@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   migrateComplaintData,
   PRIMARY_COMPLAINTS_KEY,
@@ -7,6 +7,7 @@ import {
   LEGACY_AUDIT_KEY,
   MIGRATION_FLAG_KEY,
 } from './dataMigrationService';
+import { getComplaints } from './complaintService';
 import type { Complaint } from '@/types';
 import type { AdminAuditEvent } from '@/types/admin';
 
@@ -36,6 +37,7 @@ describe('dataMigrationService', () => {
   it('runs safely when no legacy data exists in localStorage', () => {
     const result = migrateComplaintData();
     expect(result.applied).toBe(false);
+    expect(result.success).toBe(true);
     expect(result.migratedAssignmentsCount).toBe(0);
     expect(result.migratedAuditCount).toBe(0);
     expect(window.localStorage.getItem(MIGRATION_FLAG_KEY)).not.toBeNull();
@@ -56,6 +58,7 @@ describe('dataMigrationService', () => {
 
     const result = migrateComplaintData();
     expect(result.applied).toBe(true);
+    expect(result.success).toBe(true);
     expect(result.migratedAssignmentsCount).toBe(1);
 
     const updatedPrimary: Complaint[] = JSON.parse(
@@ -85,6 +88,7 @@ describe('dataMigrationService', () => {
 
     const result = migrateComplaintData();
     expect(result.applied).toBe(true);
+    expect(result.success).toBe(true);
 
     const updatedPrimary: Complaint[] = JSON.parse(
       window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY)!
@@ -93,7 +97,7 @@ describe('dataMigrationService', () => {
     expect(updatedPrimary.some((c) => c.id === 'CMP-2026-999')).toBe(true);
   });
 
-  it('migrates legacy audit entries into the unified AdminAuditEvent format', () => {
+  it('honestly represents legacy audit actors without inventing identities or email addresses (SCMS-82)', () => {
     const legacyAudit = [
       {
         complaintId: 'CMP-2026-001',
@@ -101,46 +105,78 @@ describe('dataMigrationService', () => {
         previousTeam: null,
         newTeam: 'Facilities Maintenance',
         timestamp: '2026-01-11T12:00:00.000Z',
+        // No performedBy provided in legacy entry
+      },
+      {
+        complaintId: 'CMP-2026-002',
+        action: 'REASSIGNED',
+        previousTeam: 'Facilities Maintenance',
+        newTeam: 'Finance Office',
+        timestamp: '2026-01-12T12:00:00.000Z',
+        performedBy: 'Prof. David', // Provided legacy actor
       },
     ];
     window.localStorage.setItem(LEGACY_AUDIT_KEY, JSON.stringify(legacyAudit));
 
     const result = migrateComplaintData();
-    expect(result.migratedAuditCount).toBe(1);
+    expect(result.migratedAuditCount).toBe(2);
 
     const primaryAudit: AdminAuditEvent[] = JSON.parse(
       window.localStorage.getItem(PRIMARY_AUDIT_KEY)!
     );
-    expect(primaryAudit.length).toBe(1);
-    expect(primaryAudit[0].complaintId).toBe('CMP-2026-001');
-    expect(primaryAudit[0].action).toBe('ASSIGNED');
-    expect(primaryAudit[0].previousValue).toBeNull();
-    expect(primaryAudit[0].newValue).toBe('Facilities Maintenance');
-    expect(primaryAudit[0].actor.role).toBe('admin');
-    expect(primaryAudit[0].id).toBeDefined();
+    expect(primaryAudit.length).toBe(2);
+
+    // Entry 1: Unknown legacy actor should be explicitly represented as unrecorded / system-migrated
+    expect(primaryAudit[0].actor.name).toBe('Legacy System (Unrecorded Actor)');
+    expect(primaryAudit[0].actor.email).toBe(''); // No invented email
+    expect(primaryAudit[0].actor.role).toBe('system_migrated');
+
+    // Entry 2: Preserves actual performedBy without inventing an email
+    expect(primaryAudit[1].actor.name).toBe('Prof. David');
+    expect(primaryAudit[1].actor.email).toBe('');
+    expect(primaryAudit[1].actor.role).toBe('legacy_admin');
   });
 
-  it('is idempotent and prevents duplicate audit entries on subsequent runs', () => {
-    const legacyAudit = [
-      {
-        complaintId: 'CMP-2026-001',
-        action: 'ASSIGNED',
-        previousTeam: null,
-        newTeam: 'Facilities Maintenance',
-        timestamp: '2026-01-11T12:00:00.000Z',
-      },
+  it('does not mark migration as complete if writing storage fails', () => {
+    const legacy = [
+      createMockComplaint({ id: 'CMP-2026-001', assignedTo: 'Facilities Maintenance' }),
     ];
-    window.localStorage.setItem(LEGACY_AUDIT_KEY, JSON.stringify(legacyAudit));
+    window.localStorage.setItem(LEGACY_ASSIGNMENTS_KEY, JSON.stringify(legacy));
 
-    const firstRun = migrateComplaintData();
-    expect(firstRun.migratedAuditCount).toBe(1);
+    // Force setItem to fail on primary complaints key
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, val: string) {
+      if (key === PRIMARY_COMPLAINTS_KEY) {
+        throw new Error('Quota exceeded');
+      }
+      return originalSetItem.call(this, key, val);
+    });
 
-    const secondRun = migrateComplaintData();
-    expect(secondRun.migratedAuditCount).toBe(0);
+    const result = migrateComplaintData();
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    // Migration flag MUST NOT be marked complete
+    expect(window.localStorage.getItem(MIGRATION_FLAG_KEY)).toBeNull();
+  });
 
-    const primaryAudit: AdminAuditEvent[] = JSON.parse(
-      window.localStorage.getItem(PRIMARY_AUDIT_KEY)!
-    );
-    expect(primaryAudit.length).toBe(1);
+  it('migrates legacy-only state upon direct All Complaints navigation (readComplaints path)', () => {
+    // Only legacy storage exists; primary storage is completely uninitialized
+    const legacy = [
+      createMockComplaint({
+        id: 'CMP-2026-888',
+        subject: 'Direct Navigation Test Complaint',
+        assignedTo: 'Registrar Office',
+      }),
+    ];
+    window.localStorage.setItem(LEGACY_ASSIGNMENTS_KEY, JSON.stringify(legacy));
+    expect(window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY)).toBeNull();
+
+    // Directly call getComplaints() as All Complaints and Complaint Details do
+    const complaints = getComplaints();
+
+    expect(complaints.some((c) => c.id === 'CMP-2026-888')).toBe(true);
+    expect(complaints.find((c) => c.id === 'CMP-2026-888')?.assignedTo).toBe('Registrar Office');
+    // Primary storage must now be initialized with migrated data
+    expect(window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY)).not.toBeNull();
   });
 });

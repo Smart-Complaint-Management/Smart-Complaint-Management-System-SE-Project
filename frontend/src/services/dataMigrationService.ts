@@ -10,9 +10,11 @@ export const MIGRATION_FLAG_KEY = 'scms_migration_applied_v1';
 
 export interface MigrationSummary {
   applied: boolean;
+  success: boolean;
   migratedAssignmentsCount: number;
   migratedAuditCount: number;
   totalComplaints: number;
+  error?: string;
 }
 
 interface LegacyAuditEntry {
@@ -58,11 +60,16 @@ function safeSetJson<T>(key: string, value: T): boolean {
  * Safe, idempotent migration of legacy assignment and audit data.
  * Merges legacy `scms-complaint-assignments` into primary `scms_complaints`
  * without silently overwriting or discarding existing complaint records.
+ *
+ * Audit actor integrity (SCMS-82):
+ * Legacy entries with missing actor information are explicitly represented as
+ * 'Legacy System (Unrecorded Actor)' with role 'system_migrated' and NO invented email.
  */
 export function migrateComplaintData(): MigrationSummary {
   if (typeof window === 'undefined') {
     return {
       applied: false,
+      success: true,
       migratedAssignmentsCount: 0,
       migratedAuditCount: 0,
       totalComplaints: 0,
@@ -74,6 +81,7 @@ export function migrateComplaintData(): MigrationSummary {
 
   let migratedAssignmentsCount = 0;
   let migratedAuditCount = 0;
+  let allWritesSucceeded = true;
 
   // 1. Merge complaints if legacy data exists
   const rawPrimary = safeGetJson<Complaint[]>(PRIMARY_COMPLAINTS_KEY);
@@ -106,7 +114,11 @@ export function migrateComplaintData(): MigrationSummary {
     }
 
     const mergedComplaints = Array.from(primaryMap.values());
-    safeSetJson(PRIMARY_COMPLAINTS_KEY, mergedComplaints);
+    const writeOk = safeSetJson(PRIMARY_COMPLAINTS_KEY, mergedComplaints);
+    if (!writeOk) {
+      allWritesSucceeded = false;
+      console.error('[dataMigration] Failed to persist merged complaints into primary store.');
+    }
   }
 
   // 2. Merge audit history if legacy audit exists
@@ -124,14 +136,22 @@ export function migrateComplaintData(): MigrationSummary {
 
       const dedupeKey = `${entry.complaintId}-${entry.timestamp}-${entry.action}`;
       if (!existingKeys.has(dedupeKey)) {
+        // Represent unavailable legacy actor information honestly without invented identities (SCMS-82)
+        const actorName = entry.performedBy && entry.performedBy.trim() !== ''
+          ? entry.performedBy.trim()
+          : 'Legacy System (Unrecorded Actor)';
+        const actorRole = entry.performedBy && entry.performedBy.trim() !== ''
+          ? 'legacy_admin'
+          : 'system_migrated';
+
         const migratedEvent: AdminAuditEvent = {
           id: entry.id || `AUD-LEGACY-${Date.now()}-${i + 1}`,
           complaintId: entry.complaintId,
           action: entry.action,
           actor: {
-            name: entry.performedBy || 'System Administrator',
-            email: 'admin@university.edu',
-            role: 'admin',
+            name: actorName,
+            email: '', // Never invent fake administrator emails
+            role: actorRole,
           },
           previousValue: entry.previousTeam,
           newValue: entry.newTeam,
@@ -145,22 +165,30 @@ export function migrateComplaintData(): MigrationSummary {
     }
 
     if (migratedAuditCount > 0 || !rawAudit) {
-      safeSetJson(PRIMARY_AUDIT_KEY, primaryAudit);
+      const writeOk = safeSetJson(PRIMARY_AUDIT_KEY, primaryAudit);
+      if (!writeOk) {
+        allWritesSucceeded = false;
+        console.error('[dataMigration] Failed to persist migrated audit events into primary store.');
+      }
     }
   }
 
-  // Mark migration as completed
-  safeSetJson(MIGRATION_FLAG_KEY, {
-    version: 1,
-    migratedAt: new Date().toISOString(),
-    migratedAssignmentsCount,
-    migratedAuditCount,
-  });
+  // Do not mark data as migrated unless the required writes succeed
+  if (allWritesSucceeded) {
+    safeSetJson(MIGRATION_FLAG_KEY, {
+      version: 1,
+      migratedAt: new Date().toISOString(),
+      migratedAssignmentsCount,
+      migratedAuditCount,
+    });
+  }
 
   return {
     applied: migratedAssignmentsCount > 0 || migratedAuditCount > 0,
+    success: allWritesSucceeded,
     migratedAssignmentsCount,
     migratedAuditCount,
     totalComplaints: primaryComplaints.length,
+    error: allWritesSucceeded ? undefined : 'Storage write failed during migration.',
   };
 }
