@@ -7,7 +7,7 @@ on:
       - '!main'
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -64,32 +64,30 @@ jobs:
 
           # 3. Generate PR title and structured description from actual commits
           LATEST_SUBJECT=$(git log -1 --format="%s")
-          COMMIT_LIST=$(git log origin/main..HEAD --format="- %h: %s")
-
           PR_TITLE="${LATEST_SUBJECT}"
 
-          PR_BODY=$(cat <<EOF
-## Pull Request Summary
-
-Automatically generated pull request from branch \`${BRANCH}\` into \`main\`.
-
-### Commits (${AHEAD_COUNT})
-${COMMIT_LIST}
-
-### Automated Quality Checks
-The following CI status checks will run automatically on this pull request:
-- **Frontend / Typecheck**: TypeScript compiler check (\`tsc --noEmit\`)
-- **Frontend / Lint**: ESLint code quality & style checks
-- **Frontend / Test**: Vitest unit & integration test suites
-- **Frontend / Build**: Vite production client bundle compilation
-- **Backend checks**: Python syntax and unit tests
-
-### Merge Safeguards
-- Direct push to \`main\` is prohibited.
-- This pull request requires code review approval and passing CI checks before merging.
-- Auto-merge will only execute once all required reviews and status checks pass, subject to repository branch protection settings.
-EOF
-)
+          # Construct PR description safely into file
+          {
+            echo "## Pull Request Summary"
+            echo ""
+            echo "Automatically generated pull request from branch \`${BRANCH}\` into \`main\`."
+            echo ""
+            echo "### Included Commits (${AHEAD_COUNT})"
+            git log origin/main..HEAD --format="- %h: %s"
+            echo ""
+            echo "### Automated Quality Checks"
+            echo "The following CI status checks will run automatically on this pull request:"
+            echo "- **Frontend / Typecheck**: TypeScript compiler check (\`tsc --noEmit\`)"
+            echo "- **Frontend / Lint**: ESLint code quality & style checks"
+            echo "- **Frontend / Test**: Vitest unit & integration test suites"
+            echo "- **Frontend / Build**: Vite production client bundle compilation"
+            echo "- **Backend checks**: Python syntax and unit tests"
+            echo ""
+            echo "### Merge Safeguards"
+            echo "- Direct push to \`main\` is prohibited."
+            echo "- This pull request requires code review approval and passing CI checks before merging."
+            echo "- Auto-merge will only execute once all required reviews and status checks pass, subject to repository branch protection settings."
+          } > pr_body.md
 
           echo "Creating pull request..."
           PR_URL=$(gh pr create \
@@ -97,7 +95,7 @@ EOF
             --base main \
             --head "${BRANCH}" \
             --title "${PR_TITLE}" \
-            --body "${PR_BODY}")
+            --body-file pr_body.md)
 
           echo "Successfully created pull request: ${PR_URL}"
 
