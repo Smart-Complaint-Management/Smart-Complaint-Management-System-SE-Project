@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getAdminAuditEvents } from './adminAuditService';
 import type { AuthSession } from '@/pages/auth/authContext';
 import type { AppNotification, Complaint, ComplaintUpdate } from '@/types';
 import {
@@ -6,6 +7,7 @@ import {
   getMyNotifications,
   submitComplaintEscalation,
   updateComplaintStatus,
+  reviewComplaintEscalation,
 } from './complaintService';
 
 const COMPLAINTS_KEY = 'scms_complaints';
@@ -195,5 +197,30 @@ describe('localStorage-backed complaint services', () => {
     expect(() => updateComplaintStatus('CMP-2026-001', 'in_progress', 'Test Admin', adminSession))
       .toThrow('Could not save this change in browser storage. Your previous data was restored where possible.');
     expect(keys.map((key) => localStorage.getItem(key))).toEqual(before);
+  });
+
+  it('records an audit event when an admin updates complaint status', () => {
+    seedStorage([complaint({ id: 'CMP-2026-001', status: 'submitted' })]);
+    const result = updateComplaintStatus('CMP-2026-001', 'in_progress', 'Test Admin', adminSession);
+    expect(result.outcome).toBe('updated');
+
+    const auditEvents = getAdminAuditEvents('CMP-2026-001');
+    expect(auditEvents.length).toBe(1);
+    expect(auditEvents[0].action).toBe('STATUS_CHANGED');
+    expect(auditEvents[0].previousValue).toBe('submitted');
+    expect(auditEvents[0].newValue).toBe('in_progress');
+    expect(auditEvents[0].actor.role).toBe('admin');
+  });
+
+  it('records an escalation review audit event when an admin reviews an escalated complaint', () => {
+    seedStorage([complaint({ id: 'CMP-2026-001', isEscalated: true })]);
+    const result = reviewComplaintEscalation('CMP-2026-001', 'Prioritized with lab technician', adminSession);
+    expect(result.outcome).toBe('reviewed');
+
+    const auditEvents = getAdminAuditEvents('CMP-2026-001');
+    expect(auditEvents.length).toBe(1);
+    expect(auditEvents[0].action).toBe('ESCALATION_REVIEWED');
+    expect(auditEvents[0].newValue).toBe('Reviewed');
+    expect(auditEvents[0].details).toBe('Prioritized with lab technician');
   });
 });
