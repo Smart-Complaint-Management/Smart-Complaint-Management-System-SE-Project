@@ -31,11 +31,11 @@ if ($CurrentBranch -eq $BaseBranch) {
 }
 
 # 3. Check for uncommitted changes
-$StatusOutput = (git status --porcelain).Trim()
-if ($StatusOutput.Length -gt 0) {
+$StatusRaw = git status --porcelain
+if ($StatusRaw) {
     Write-Host ""
     Write-Host "[ERROR] Working tree has uncommitted changes:" -ForegroundColor Red
-    Write-Host $StatusOutput
+    Write-Host ($StatusRaw -join "`n")
     Write-Host "`nPlease commit or stash changes before creating a pull request."
     exit 1
 }
