@@ -1,5 +1,4 @@
-
-import { useState } from 'react';
+import { useState, useCallback, useTransition } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -16,243 +15,167 @@ import {
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SummaryMetric } from '@/components/ui/SummaryMetric';
-import { getAdminComplaints } from '@/data/adminComplaintData';
-import { categoryLabels, statusLabels } from '@/data/mockData';
+import {
+  getReportComplaints,
+  generateReportData,
+} from '@/services/adminReportService';
+import {
+  buildCsvContent,
+  triggerCsvDownload,
+  COMPLAINT_CSV_COLUMNS,
+} from '@/services/csvExportService';
 
 export function AdminReportsPage() {
-  // Read saved complaints on mount, and again when the admin refreshes.
-  const [complaints, setComplaints] = useState(getAdminComplaints);
+  const [reportData, setReportData] = useState(() => generateReportData());
+  const [complaints, setComplaints] = useState(() => getReportComplaints());
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
-  const downloadCsv = () => {
-    const columns: Array<{ label: string; value: (complaint: (typeof complaints)[number]) => string | number | boolean | null }> = [
-      { label: 'ID', value: (c) => c.id },
-      { label: 'Subject', value: (c) => c.subject },
-      { label: 'Description', value: (c) => c.description },
-      { label: 'Category', value: (c) => categoryLabels[c.category] ?? c.category },
-      { label: 'Status', value: (c) => statusLabels[c.status] ?? c.status },
-      { label: 'Priority', value: (c) => c.priority },
-      { label: 'Submitted By', value: (c) => c.submittedBy },
-      { label: 'Assigned To', value: (c) => c.assignedTo },
-      { label: 'Submitted At', value: (c) => c.submittedAt },
-      { label: 'Updated At', value: (c) => c.updatedAt },
-      { label: 'Escalated', value: (c) => c.isEscalated },
-      { label: 'Possible Duplicate ID', value: (c) => c.possibleDuplicateId },
-    ];
-    const escapeCsv = (value: string | number | boolean | null) => {
-      const text = value == null ? '' : String(value);
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-    const csv = [
-      columns.map(({ label }) => escapeCsv(label)).join(','),
-      ...complaints.map((complaint) =>
-        columns.map(({ value }) => escapeCsv(value(complaint))).join(','),
-      ),
-    ].join('\r\n');
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'complaint-reports.csv';
-    link.click();
-    URL.revokeObjectURL(url);
+  const handleRefresh = useCallback(() => {
+    startTransition(() => {
+      const freshComplaints = getReportComplaints();
+      const freshData = generateReportData(freshComplaints);
+      setComplaints(freshComplaints);
+      setReportData(freshData);
+      setRefreshMessage(`Reports reloaded at ${new Date().toLocaleTimeString()}`);
+    });
+  }, []);
+
+  const handleDownloadCsv = () => {
+    const csv = buildCsvContent(complaints, COMPLAINT_CSV_COLUMNS);
+    triggerCsvDownload(csv);
   };
 
-  const total = complaints.length;
-  const resolved = complaints.filter((c) => c.status === 'resolved');
-  const open = complaints.filter(
-    (c) => c.status !== 'resolved' && c.status !== 'rejected',
-  );
-  const rejected = complaints.filter((c) => c.status === 'rejected');
-  const escalated = complaints.filter((c) => c.isEscalated);
-
-  const assigned = complaints.filter(
-    (c) => c.assignedTo !== null && c.assignedTo.trim() !== '',
-  );
-  const unassigned = complaints.filter(
-    (c) => c.assignedTo === null || c.assignedTo.trim() === '',
-  );
-
-  const resolutionRate =
-    total > 0 ? Math.round((resolved.length / total) * 100) : 0;
-
-  const escalationRate =
-    total > 0 ? Math.round((escalated.length / total) * 100) : 0;
-
-  const assignmentRate =
-    total > 0 ? Math.round((assigned.length / total) * 100) : 0;
-
-  // Category breakdown
-  const byCategory = Object.entries(categoryLabels)
-    .map(([value, label]) => ({
-      label,
-      count: complaints.filter((c) => c.category === value).length,
-    }))
-    .filter((category) => category.count > 0);
+  const { metrics, byCategory, byStatus, byTeam } = reportData;
 
   const maxCategory = Math.max(...byCategory.map((c) => c.count), 1);
-
-  // Status breakdown
-  const byStatus = Object.entries(statusLabels)
-    .map(([value, label]) => ({
-      value,
-      label,
-      count: complaints.filter((c) => c.status === value).length,
-    }))
-    .filter((status) => status.count > 0);
-
   const maxStatus = Math.max(...byStatus.map((s) => s.count), 1);
-
-  // Team assignment breakdown
-  const teamCounts = new Map<string, number>();
-
-  complaints.forEach((complaint) => {
-    const team =
-      complaint.assignedTo && complaint.assignedTo.trim() !== ''
-        ? complaint.assignedTo.trim()
-        : 'Unassigned';
-
-    teamCounts.set(team, (teamCounts.get(team) ?? 0) + 1);
-  });
-
-  const byTeam = Array.from(teamCounts.entries())
-    .map(([team, count]) => ({ team, count }))
-    .sort((a, b) => b.count - a.count);
-
-  const maxTeam = Math.max(...byTeam.map((team) => team.count), 1);
-
-  // Calculate average resolution time from resolved complaints.
-  // This uses submittedAt and updatedAt as a demo approximation.
-  const resolutionDurations = resolved
-    .map((complaint) => {
-      const submitted = new Date(complaint.submittedAt).getTime();
-      const updated = new Date(complaint.updatedAt).getTime();
-
-      if (
-        !Number.isFinite(submitted) ||
-        !Number.isFinite(updated) ||
-        updated < submitted
-      ) {
-        return null;
-      }
-
-      return updated - submitted;
-    })
-    .filter((duration): duration is number => duration !== null);
-
-  const averageResolutionDays =
-    resolutionDurations.length > 0
-      ? (
-          resolutionDurations.reduce((sum, duration) => sum + duration, 0) /
-          resolutionDurations.length /
-          (1000 * 60 * 60 * 24)
-        ).toFixed(1)
-      : null;
+  const maxTeam = Math.max(...byTeam.map((t) => t.count), 1);
 
   return (
     <div>
       <PageHeader
         title="Reports & Analytics"
-        description="Summary of complaint activity, category distribution, team assignments, and status breakdown."
+        description="Comprehensive analysis of complaint activity, category distribution, department allocations, and resolution rates."
         actions={
-          <>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setComplaints(getAdminComplaints())}
+              onClick={handleRefresh}
+              disabled={isPending}
+              aria-label="Refresh report metrics"
               className="btn btn-secondary inline-flex items-center gap-2"
             >
-              <RefreshCw className="h-4 w-4" /> Refresh
+              <RefreshCw
+                className={`h-4 w-4 ${isPending ? 'animate-spin text-accent-600' : ''}`}
+              />
+              {isPending ? 'Refreshing...' : 'Refresh'}
             </button>
+
             <button
               type="button"
-              onClick={downloadCsv}
+              onClick={handleDownloadCsv}
               className="btn btn-primary inline-flex items-center gap-2"
             >
               <Download className="h-4 w-4" /> Download CSV
             </button>
-          </>
+          </div>
         }
       />
 
-      <p className="mb-5 text-xs text-ink-400">
-        Demo analytics based on complaint data saved in this browser. These
-        figures are not live, shared backend statistics.
-      </p>
+      {refreshMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-4 flex items-center justify-between rounded-lg border border-accent-200 bg-accent-50/50 px-4 py-2 text-xs font-medium text-accent-800"
+        >
+          <span>{refreshMessage}</span>
+          <button
+            type="button"
+            onClick={() => setRefreshMessage(null)}
+            className="text-xs underline hover:text-accent-950"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
-      {/* Top metrics */}
+      {/* Top Metrics Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryMetric
           label="Total Complaints"
-          value={total}
+          value={metrics.total}
           icon={FileText}
-          hint="All registered complaints."
+          hint="All registered complaints in system."
         />
 
         <SummaryMetric
           label="Open"
-          value={open.length}
+          value={metrics.open}
           icon={Clock}
           accent="warning"
-          hint="Not resolved or rejected."
+          hint="Awaiting triage or resolution."
         />
 
         <SummaryMetric
           label="Resolved"
-          value={resolved.length}
+          value={metrics.resolved}
           icon={CheckCircle2}
           accent="success"
-          hint="Successfully closed."
+          hint="Successfully resolved."
         />
 
         <SummaryMetric
           label="Resolution Rate"
-          value={`${resolutionRate}%`}
+          value={`${metrics.resolutionRate}%`}
           icon={TrendingUp}
           accent="success"
-          hint={`${resolved.length} of ${total} resolved`}
+          hint={`${metrics.resolved} of ${metrics.total} resolved`}
         />
       </div>
 
-      {/* Assignment metrics */}
+      {/* Assignment Metrics Cards */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="card p-5">
           <p className="text-sm text-ink-500">Assigned Complaints</p>
           <p className="mt-1 text-2xl font-semibold text-ink-900">
-            {assigned.length}
+            {metrics.assigned}
           </p>
           <p className="mt-1 text-xs text-ink-400">
-            {assignmentRate}% of all complaints
+            {metrics.assignmentRate}% of all complaints
           </p>
         </div>
 
         <div className="card p-5">
           <p className="text-sm text-ink-500">Awaiting Assignment</p>
           <p className="mt-1 text-2xl font-semibold text-ink-900">
-            {unassigned.length}
+            {metrics.unassigned}
           </p>
           <p className="mt-1 text-xs text-ink-400">
-            Complaints without a team
+            Complaints without assigned team
           </p>
         </div>
 
         <div className="card p-5">
           <p className="text-sm text-ink-500">Teams Handling Complaints</p>
           <p className="mt-1 text-2xl font-semibold text-ink-900">
-            {byTeam.filter((team) => team.team !== 'Unassigned').length}
+            {byTeam.filter((t) => t.team !== 'Unassigned').length}
           </p>
           <p className="mt-1 text-xs text-ink-400">
-            Distinct assigned teams
+            Active university departments
           </p>
         </div>
       </div>
 
-      {/* Category and status charts */}
+      {/* Category and Status Charts */}
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Category distribution */}
-        <div className="card p-6">
+        {/* Category Breakdown */}
+        <section className="card p-6" aria-labelledby="category-chart-heading">
           <h2 id="category-chart-heading" className="mb-1 text-base font-semibold text-ink-900">
             Complaints by Category
           </h2>
-          <p id="category-chart-description" className="mb-5 text-sm text-ink-600">
-            Distribution across complaint categories.
+          <p className="mb-5 text-sm text-ink-600">
+            Distribution across academic, facility, and administrative categories.
           </p>
 
           {byCategory.length === 0 ? (
@@ -260,13 +183,13 @@ export function AdminReportsPage() {
               No category data available.
             </p>
           ) : (
-            <div role="group" aria-labelledby="category-chart-heading" aria-describedby="category-chart-description" className="space-y-3">
-              {byCategory.map((category) => (
-                <div key={category.label}>
+            <div className="space-y-3">
+              {byCategory.map((cat) => (
+                <div key={cat.category}>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-ink-600">{category.label}</span>
+                    <span className="text-ink-600">{cat.label}</span>
                     <span className="font-medium text-ink-800">
-                      {category.count}
+                      {cat.count} ({cat.percentage}%)
                     </span>
                   </div>
 
@@ -274,7 +197,7 @@ export function AdminReportsPage() {
                     <div
                       className="h-full rounded-full bg-accent-500 transition-all duration-300"
                       style={{
-                        width: `${(category.count / maxCategory) * 100}%`,
+                        width: `${(cat.count / maxCategory) * 100}%`,
                       }}
                     />
                   </div>
@@ -282,15 +205,15 @@ export function AdminReportsPage() {
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Status breakdown */}
-        <div className="card p-6">
+        {/* Status Breakdown */}
+        <section className="card p-6" aria-labelledby="status-chart-heading">
           <h2 id="status-chart-heading" className="mb-1 text-base font-semibold text-ink-900">
             Status Breakdown
           </h2>
-          <p id="status-chart-description" className="mb-5 text-sm text-ink-600">
-            Current status of all complaints.
+          <p className="mb-5 text-sm text-ink-600">
+            Lifecycle state of all active and historical complaints.
           </p>
 
           {byStatus.length === 0 ? (
@@ -298,8 +221,8 @@ export function AdminReportsPage() {
               No status data available.
             </p>
           ) : (
-            <div role="group" aria-labelledby="status-chart-heading" aria-describedby="status-chart-description" className="space-y-3">
-              {byStatus.map((status) => {
+            <div className="space-y-3">
+              {byStatus.map((st) => {
                 const statusColor: Record<string, string> = {
                   submitted: 'bg-ink-400',
                   under_review: 'bg-amber-500',
@@ -309,19 +232,21 @@ export function AdminReportsPage() {
                 };
 
                 return (
-                  <div key={status.value}>
+                  <div key={st.status}>
                     <div className="mb-1 flex items-center justify-between text-sm">
-                      <span className="text-ink-600">{status.label}</span>
+                      <span className="text-ink-600">{st.label}</span>
                       <span className="font-medium text-ink-800">
-                        {status.count}
+                        {st.count} ({st.percentage}%)
                       </span>
                     </div>
 
                     <div className="h-2 overflow-hidden rounded-full bg-ink-50">
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${statusColor[status.value] ?? 'bg-ink-400'}`}
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          statusColor[st.status] || 'bg-ink-400'
+                        }`}
                         style={{
-                          width: `${(status.count / maxStatus) * 100}%`,
+                          width: `${(st.count / maxStatus) * 100}%`,
                         }}
                       />
                     </div>
@@ -330,11 +255,11 @@ export function AdminReportsPage() {
               })}
             </div>
           )}
-        </div>
+        </section>
       </div>
 
-      {/* Team assignment breakdown */}
-      <div className="card mt-6 p-6">
+      {/* Team Assignment Breakdown */}
+      <section className="card mt-6 p-6" aria-labelledby="team-chart-heading">
         <div className="mb-1 flex items-center gap-2">
           <Users className="h-5 w-5 text-accent-600" />
           <h2 id="team-chart-heading" className="text-base font-semibold text-ink-900">
@@ -342,9 +267,8 @@ export function AdminReportsPage() {
           </h2>
         </div>
 
-        <p id="team-chart-description" className="mb-5 text-sm text-ink-600">
-          Number of complaints assigned to each team, including unassigned
-          complaints.
+        <p className="mb-5 text-sm text-ink-600">
+          Complaints assigned to each university department, including unassigned items.
         </p>
 
         {byTeam.length === 0 ? (
@@ -352,13 +276,13 @@ export function AdminReportsPage() {
             No assignment data available.
           </p>
         ) : (
-          <div role="group" aria-labelledby="team-chart-heading" aria-describedby="team-chart-description" className="space-y-4">
-            {byTeam.map(({ team, count }) => (
+          <div className="space-y-4">
+            {byTeam.map(({ team, count, percentage }) => (
               <div key={team}>
                 <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                   <span className="text-ink-600">{team}</span>
                   <span className="font-medium text-ink-800">
-                    {count} ({total > 0 ? Math.round((count / total) * 100) : 0}%)
+                    {count} ({percentage}%)
                   </span>
                 </div>
 
@@ -374,9 +298,9 @@ export function AdminReportsPage() {
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Summary footer */}
+      {/* Summary Rates Footer */}
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="card p-5">
           <div className="flex items-center gap-3">
@@ -386,10 +310,13 @@ export function AdminReportsPage() {
             <div>
               <p className="text-sm text-ink-500">Escalation Rate</p>
               <p className="text-xl font-semibold text-ink-900">
-                {escalationRate}%
+                {metrics.escalationRate}%
               </p>
             </div>
           </div>
+          <p className="mt-2 text-xs text-ink-400">
+            {metrics.escalated} of {metrics.total} escalated
+          </p>
         </div>
 
         <div className="card p-5">
@@ -400,10 +327,13 @@ export function AdminReportsPage() {
             <div>
               <p className="text-sm text-ink-500">Rejected</p>
               <p className="text-xl font-semibold text-ink-900">
-                {rejected.length}
+                {metrics.rejected}
               </p>
             </div>
           </div>
+          <p className="mt-2 text-xs text-ink-400">
+            Ineligible or duplicate submissions
+          </p>
         </div>
 
         <div className="card p-5">
@@ -412,21 +342,21 @@ export function AdminReportsPage() {
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm text-ink-500">Avg. Resolution</p>
+              <p className="text-sm text-ink-500">Avg. Resolution Time</p>
               <p className="text-xl font-semibold text-ink-900">
-                {averageResolutionDays === null
+                {metrics.averageResolutionDays === null
                   ? 'N/A'
-                  : `${averageResolutionDays} days`}
+                  : `${metrics.averageResolutionDays} days`}
               </p>
             </div>
           </div>
-          <p className="mt-1 text-sm text-ink-600">
-            Demo estimate using submitted and updated timestamps.
+          <p className="mt-2 text-xs text-ink-400">
+            Calculated across {metrics.resolved} resolved cases
           </p>
         </div>
       </div>
 
-      {/* Link to all complaints */}
+      {/* Navigation Link */}
       <div className="mt-6">
         <Link
           to="/admin/complaints"
