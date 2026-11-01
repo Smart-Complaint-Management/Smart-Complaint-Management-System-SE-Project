@@ -1,4 +1,4 @@
-import type { Complaint, ComplaintPriority, ComplaintStatus } from './index';
+import type { Complaint, ComplaintStatus } from './index';
 
 export const ALLOWED_ASSIGNMENT_TEAMS = [
   'IT Support Desk',
