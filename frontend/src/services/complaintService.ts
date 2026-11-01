@@ -15,7 +15,12 @@ import type {
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
-import { recordAdminAction } from './adminAuditService';
+import {
+  createAuditEvent,
+  getAdminAuditEvents,
+  ADMIN_AUDIT_STORAGE_KEY,
+} from './adminAuditService';
+import { migrateComplaintData } from './dataMigrationService';
 
 export interface NewComplaintInput {
   subject: string;
@@ -143,6 +148,13 @@ export function classifyComplaintPriority(
  * Existing mock records are used when no saved records exist.
  */
 function readComplaints(): Complaint[] {
+  if (isBrowser()) {
+    try {
+      migrateComplaintData();
+    } catch (error) {
+      console.warn('Data migration check failed on readComplaints:', error);
+    }
+  }
   if (!isBrowser()) {
     return mockComplaints;
   }
@@ -518,25 +530,28 @@ export function updateComplaintStatus(
       : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
     read: false, timestamp: update.timestamp,
   });
-  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates], [NOTIFICATIONS_STORAGE_KEY, notifications]]);
+  const currentAudit = getAdminAuditEvents();
+  const auditEvent = createAuditEvent({
+    complaintId,
+    action: 'STATUS_CHANGED',
+    actor: {
+      name: session.fullName || author,
+      email: session.email || '',
+      role: session.role || 'admin',
+    },
+    previousValue: previousStatus,
+    newValue: status,
+    timestamp,
+    details: `Status changed from ${statusLabels[previousStatus] ?? previousStatus} to ${statusLabels[status] ?? status}`,
+  });
+  const updatedAudit = [auditEvent, ...currentAudit];
 
-  try {
-    recordAdminAction({
-      complaintId,
-      action: 'STATUS_CHANGED',
-      actor: {
-        name: session.fullName || author,
-        email: session.email || 'admin@university.edu',
-        role: session.role || 'admin',
-      },
-      previousValue: previousStatus,
-      newValue: status,
-      timestamp,
-      details: `Status changed from ${statusLabels[previousStatus] ?? previousStatus} to ${statusLabels[status] ?? status}`,
-    });
-  } catch (error) {
-    console.error('Failed to record admin audit entry for status change:', error);
-  }
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+    [NOTIFICATIONS_STORAGE_KEY, notifications],
+    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+  ]);
 
   return { outcome: 'updated', update };
 }
@@ -585,25 +600,27 @@ export function reviewComplaintEscalation(
   complaint.updatedAt = timestamp;
   updates.push(update);
 
-  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates]]);
+  const currentAudit = getAdminAuditEvents();
+  const auditEvent = createAuditEvent({
+    complaintId,
+    action: 'ESCALATION_REVIEWED',
+    actor: {
+      name: session.fullName,
+      email: session.email || '',
+      role: session.role,
+    },
+    previousValue: 'Escalated',
+    newValue: 'Reviewed',
+    timestamp,
+    details: actionNote.trim(),
+  });
+  const updatedAudit = [auditEvent, ...currentAudit];
 
-  try {
-    recordAdminAction({
-      complaintId,
-      action: 'ESCALATION_REVIEWED',
-      actor: {
-        name: session.fullName,
-        email: session.email,
-        role: session.role,
-      },
-      previousValue: 'Escalated',
-      newValue: 'Reviewed',
-      timestamp,
-      details: actionNote.trim(),
-    });
-  } catch (error) {
-    console.error('Failed to record escalation review audit:', error);
-  }
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+  ]);
 
   return { outcome: 'reviewed', update };
 }
