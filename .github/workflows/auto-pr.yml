@@ -32,10 +32,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Evaluating branch: ${BRANCH} for repository: ${REPO}"
+          echo "Evaluating branch '${BRANCH}' for repository '${REPO}'..."
 
-          # 1. Fetch origin main to determine commits ahead/behind
-          git fetch origin main:refs/remotes/origin/main || true
+          # 1. Fetch origin main to determine commits ahead
+          git fetch origin main --depth=100 || true
           AHEAD_COUNT=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
 
           if [ "${AHEAD_COUNT}" -eq 0 ]; then
@@ -46,18 +46,16 @@ jobs:
           echo "Branch has ${AHEAD_COUNT} commit(s) ahead of origin/main."
 
           # 2. Check if an open PR already exists for this branch targeting main
-          EXISTING_PR_JSON=$(gh pr list \
+          EXISTING_URL=$(gh pr list \
             --repo "${REPO}" \
             --head "${BRANCH}" \
             --base main \
             --state open \
-            --json number,url,title \
-            --jq '.[0] // empty')
+            --json url \
+            --jq '.[0].url' 2>/dev/null || true)
 
-          if [ -n "${EXISTING_PR_JSON}" ]; then
-            EXISTING_PR_NUM=$(echo "${EXISTING_PR_JSON}" | jq -r '.number')
-            EXISTING_PR_URL=$(echo "${EXISTING_PR_JSON}" | jq -r '.url')
-            echo "An open pull request already exists for ${BRANCH}: #${EXISTING_PR_NUM} (${EXISTING_PR_URL})"
+          if [ -n "${EXISTING_URL}" ] && [[ "${EXISTING_URL}" =~ ^https:// ]]; then
+            echo "An open pull request already exists for branch '${BRANCH}': ${EXISTING_URL}"
             echo "Skipping creation to prevent duplicate pull requests."
             exit 0
           fi
@@ -89,21 +87,45 @@ jobs:
             echo "- Auto-merge will only execute once all required reviews and status checks pass, subject to repository branch protection settings."
           } > pr_body.md
 
-          echo "Creating pull request..."
-          PR_URL=$(gh pr create \
+          echo "Attempting to create pull request via GitHub CLI..."
+          set +e
+          CREATE_OUTPUT=$(gh pr create \
             --repo "${REPO}" \
             --base main \
             --head "${BRANCH}" \
             --title "${PR_TITLE}" \
-            --body-file pr_body.md)
+            --body-file pr_body.md 2>&1)
+          CREATE_EXIT_CODE=$?
+          set -e
 
-          echo "Successfully created pull request: ${PR_URL}"
+          if [ ${CREATE_EXIT_CODE} -eq 0 ]; then
+            PR_URL=$(echo "${CREATE_OUTPUT}" | grep -E '^https://' | head -n 1 || echo "${CREATE_OUTPUT}")
+            echo "Successfully created pull request: ${PR_URL}"
 
-          # 4. Attempt to configure auto-merge if repository settings permit it
-          # GitHub auto-merge will ONLY merge after all required reviews and status checks pass.
-          echo "Checking auto-merge capability..."
-          if gh pr merge "${PR_URL}" --auto --squash 2>/dev/null; then
-            echo "Auto-merge enabled for ${PR_URL} (will merge automatically once required reviews and checks pass)."
-          else
-            echo "Auto-merge is not enabled in repository settings or requires manual configuration. PR remains open for review."
+            # 4. Attempt to configure auto-merge if repository settings permit it
+            echo "Checking auto-merge capability..."
+            if gh pr merge "${PR_URL}" --auto --squash 2>/dev/null; then
+              echo "Auto-merge enabled for ${PR_URL} (will merge automatically once required reviews and checks pass)."
+            else
+              echo "Auto-merge is not enabled in repository settings or requires manual configuration. PR remains open for review."
+            fi
+            exit 0
           fi
+
+          echo "gh pr create output: ${CREATE_OUTPUT}"
+
+          # Handle known scenarios gracefully
+          if echo "${CREATE_OUTPUT}" | grep -iq "already exists"; then
+            echo "Pull request already exists for '${BRANCH}'."
+            exit 0
+          fi
+
+          if echo "${CREATE_OUTPUT}" | grep -iq "Resource not accessible" || echo "${CREATE_OUTPUT}" | grep -iq "not permitted to create"; then
+            echo "::warning::GitHub Actions GITHUB_TOKEN does not have write permission to create pull requests."
+            echo "::notice title=Workflow Permissions::To allow automated PR creation, enable 'Allow GitHub Actions to create and approve pull requests' in repository Settings -> Actions -> General -> Workflow permissions."
+            echo "Branch '${BRANCH}' is pushed and verified. You can create the PR with one click at: https://github.com/${REPO}/compare/main...${BRANCH}?expand=1"
+            exit 0
+          fi
+
+          echo "::error::Pull request creation failed: ${CREATE_OUTPUT}"
+          exit ${CREATE_EXIT_CODE}
