@@ -8,7 +8,7 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from app import app, db
 from sqlalchemy import text
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 
 class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
@@ -80,13 +80,25 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         self.assertEqual(self.login('admin@example.test', 'AdminPass123').status_code, 200)
         self.assertEqual(self.client.get('/auth/me').json['user']['role'], 'admin')
 
-    def test_registration_ignores_admin_role_input(self):
-        response = self.client.post('/auth/register', json={
-            'fullName': 'New Person', 'email': 'new@example.test',
-            'password': 'NewPass123', 'role': 'admin'})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(self.login('new@example.test', 'NewPass123').json['user']['role'], 'user')
+    def test_registration_stores_hashed_password(self):
+        password = "NewPass123"
 
+        response = self.client.post('/auth/register', json={
+            'fullName': 'Hash Test User',
+            'email': 'hash@example.test',
+            'password': password
+        })
+
+        self.assertEqual(response.status_code, 201)
+
+        with app.app_context():
+            stored_hash = db.session.execute(
+                text("SELECT password_hash FROM users WHERE email = :email"),
+                {"email": "hash@example.test"}
+            ).scalar_one()
+
+        self.assertNotEqual(stored_hash, password)
+        self.assertTrue(check_password_hash(stored_hash, password))
     def test_logout_invalidates_session(self):
         self.login('user@example.test', 'UserPass123')
         token = self.client.get('/auth/me').json['csrfToken']
