@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthSession } from '@/pages/auth/authContext';
 import type { AppNotification, Complaint, ComplaintUpdate } from '@/types';
 import {
+  createComplaint,
   getComplaints,
   getMyNotifications,
   submitComplaintEscalation,
@@ -90,6 +91,34 @@ describe('localStorage-backed complaint services', () => {
     expect(complaints.find((item) => item.id === 'CMP-2026-001')?.subject).toBe('Network access');
     expect(complaints.find((item) => item.id === 'CMP-unknown')).toBeUndefined();
   });
+  it('creates a complaint and persists its confirmation details', async () => {
+  const created = await createComplaint({
+    subject: 'Wi-Fi not working',
+    category: 'it_infrastructure',
+    priority: 'medium',
+    description: 'Unable to connect to campus Wi-Fi.',
+    submittedBy: userSession.fullName,
+  });
+
+  expect(created.id).toBeTruthy();
+  expect(created.status).toBe('submitted');
+  expect(created.subject).toBe('Wi-Fi not working');
+  expect(created.submittedBy).toBe(userSession.fullName);
+
+  const savedComplaints = stored<Complaint[]>(COMPLAINTS_KEY);
+  expect(savedComplaints[0]).toMatchObject({
+    id: created.id,
+    subject: 'Wi-Fi not working',
+    status: 'submitted',
+  });
+
+  const savedUpdates = stored<ComplaintUpdate[]>(UPDATES_KEY);
+  expect(savedUpdates).toContainEqual(expect.objectContaining({
+    complaintId: created.id,
+    status: 'submitted',
+    message: 'Complaint registered. Awaiting triage and assignment.',
+  }));
+});
 
   it('rejects status updates from non-admin and unauthenticated sessions', () => {
     expect(updateComplaintStatus('CMP-2026-001', 'in_progress', 'Test Admin', userSession))
