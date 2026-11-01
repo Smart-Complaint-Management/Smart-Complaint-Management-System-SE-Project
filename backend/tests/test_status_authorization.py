@@ -180,7 +180,10 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         self.assertEqual(own.json['status'], 'resolved')
         self.assertEqual(len(own.json['updates']), 1)
         self.assertEqual(own.json['updates'][0]['status'], 'resolved')
-        self.assertEqual(own.json['updates'][0]['author'], 'Test Admin')
+        self.assertEqual(own.json['updates'][0]['author'], 'Administrator')
+        self.assertNotIn('Test Admin', str(own.json))
+        self.assertNotIn('full_name', own.json['updates'][0])
+        self.assertNotIn('password_hash', str(own.json))    
         self.assertEqual(self.client.get('/complaints/2/status').status_code, 403)
 
     def test_status_history_read_requires_authentication(self):

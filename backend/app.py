@@ -411,14 +411,12 @@ def get_complaint_status(complaint_id: int):
             return jsonify({"error": "You cannot view this complaint."}), 403
 
         rows = db.session.execute(
-            text(
-                "SELECT complaint_history.id, complaint_history.new_status, "
-                "complaint_history.changed_at, users.full_name "
-                "FROM complaint_history JOIN users "
-                "ON users.id = complaint_history.changed_by "
-                "WHERE complaint_history.complaint_id = :complaint_id "
-                "ORDER BY complaint_history.changed_at, complaint_history.id"
-            ),
+           text(
+    "SELECT id, new_status, changed_at "
+    "FROM complaint_history "
+    "WHERE complaint_id = :complaint_id "
+    "ORDER BY changed_at, id"
+),
             {"complaint_id": complaint_id},
         ).mappings().all()
     except Exception:
@@ -444,7 +442,7 @@ def get_complaint_status(complaint_id: int):
                 if status == "resolved"
                 else f"Status changed to {status.replace('_', ' ').title()}."
             ),
-            "author": row["full_name"],
+            "author": "Administrator",
             "timestamp": timestamp,
         })
 
