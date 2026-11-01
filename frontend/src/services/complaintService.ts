@@ -517,6 +517,44 @@ export function updateComplaintStatus(
   return { outcome: 'updated', update };
 }
 
+export type UpdateComplaintCategoryResult =
+  | { outcome: 'updated'; complaint: Complaint }
+  | { outcome: 'unchanged' }
+  | { outcome: 'not_found' }
+  | { outcome: 'unauthorized' };
+
+/**
+ * Update complaint category. Only administrators can perform this action.
+ */
+export function updateComplaintCategory(
+  complaintId: string,
+  category: ComplaintCategory,
+  session: AuthSession | null,
+): UpdateComplaintCategoryResult {
+  if (session?.role !== 'admin') {
+    return { outcome: 'unauthorized' };
+  }
+
+  const complaints = [...readComplaints()].map((item) => ({ ...item }));
+
+  const complaint = complaints.find((item) => item.id === complaintId);
+
+  if (!complaint) {
+    return { outcome: 'not_found' };
+  }
+
+  if (complaint.category === category) {
+    return { outcome: 'unchanged' };
+  }
+
+  complaint.category = category;
+  complaint.updatedAt = new Date().toISOString();
+
+  saveStorageBatch([[STORAGE_KEY, complaints]]);
+
+  return { outcome: 'updated', complaint };
+}  
+
 export type SubmitEscalationResult =
   | { outcome: 'submitted'; update: ComplaintUpdate }
   | { outcome: 'invalid_reason' }

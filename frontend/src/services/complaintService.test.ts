@@ -7,6 +7,7 @@ import {
   getMyNotifications,
   submitComplaintEscalation,
   updateComplaintStatus,
+  updateComplaintCategory,
 } from './complaintService';
 
 const COMPLAINTS_KEY = 'scms_complaints';
@@ -150,6 +151,63 @@ describe('localStorage-backed complaint services', () => {
       type: 'status_update',
       message: 'Your complaint CMP-2026-001 status changed to In Progress.',
     }));
+  });
+
+  it('allows admins to update a complaint category and persist the change', () => {
+    const result = updateComplaintCategory(
+      'CMP-2026-001',
+      'academic',
+      adminSession,
+    );
+
+    expect(result.outcome).toBe('updated');
+
+    if (result.outcome !== 'updated') {
+      throw new Error('Expected a successful category update.');
+    }
+
+    expect(result.complaint.category).toBe('academic');
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)[0].category).toBe('academic');
+    expect(result.complaint.updatedAt).not.toBe('2026-01-01T10:00:00.000Z');
+  });
+
+  it('rejects category updates from non-admin and unauthenticated sessions', () => {
+    expect(updateComplaintCategory(
+      'CMP-2026-001',
+      'academic',
+      userSession,
+    )).toEqual({ outcome: 'unauthorized' });
+
+    expect(updateComplaintCategory(
+      'CMP-2026-001',
+      'academic',
+      null,
+    )).toEqual({ outcome: 'unauthorized' });
+
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)[0].category)
+      .toBe('it_infrastructure');
+  });
+
+  it('returns not_found when updating a category for a missing complaint', () => {
+    expect(updateComplaintCategory(
+      'CMP-unknown',
+      'academic',
+      adminSession,
+    )).toEqual({ outcome: 'not_found' });
+
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)[0].category)
+      .toBe('it_infrastructure');
+  });
+
+  it('returns unchanged when the category is already selected', () => {
+    expect(updateComplaintCategory(
+      'CMP-2026-001',
+      'it_infrastructure',
+      adminSession,
+    )).toEqual({ outcome: 'unchanged' });
+
+    expect(stored<Complaint[]>(COMPLAINTS_KEY)[0].category)
+      .toBe('it_infrastructure');
   });
 
   it('returns only notifications for the signed-in user’s complaints', () => {
