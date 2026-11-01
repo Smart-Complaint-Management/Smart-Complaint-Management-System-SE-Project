@@ -15,6 +15,7 @@ import type {
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
+import { recordAdminAction } from './adminAuditService';
 
 export interface NewComplaintInput {
   subject: string;
@@ -497,6 +498,7 @@ export function updateComplaintStatus(
     timestamp,
   };
 
+  const previousStatus = complaint.status;
   complaint.status = status;
   complaint.updatedAt = timestamp;
 
@@ -514,7 +516,92 @@ export function updateComplaintStatus(
   });
   saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates], [NOTIFICATIONS_STORAGE_KEY, notifications]]);
 
+  try {
+    recordAdminAction({
+      complaintId,
+      action: 'STATUS_CHANGED',
+      actor: {
+        name: session.fullName || author,
+        email: session.email || 'admin@university.edu',
+        role: session.role || 'admin',
+      },
+      previousValue: previousStatus,
+      newValue: status,
+      timestamp,
+      details: `Status changed from ${statusLabels[previousStatus] ?? previousStatus} to ${statusLabels[status] ?? status}`,
+    });
+  } catch (error) {
+    console.error('Failed to record admin audit entry for status change:', error);
+  }
+
   return { outcome: 'updated', update };
+}
+
+export type ReviewEscalationResult =
+  | { outcome: 'reviewed'; update: ComplaintUpdate }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'not_found' }
+  | { outcome: 'not_escalated' };
+
+/**
+ * Record an administrative escalation review action.
+ */
+export function reviewComplaintEscalation(
+  complaintId: string,
+  actionNote: string,
+  session: AuthSession | null,
+): ReviewEscalationResult {
+  if (session?.role !== 'admin') {
+    return { outcome: 'unauthorized' };
+  }
+
+  const complaints = [...readComplaints()].map((item) => ({ ...item }));
+  const complaint = complaints.find((item) => item.id === complaintId);
+
+  if (!complaint) {
+    return { outcome: 'not_found' };
+  }
+
+  if (!complaint.isEscalated) {
+    return { outcome: 'not_escalated' };
+  }
+
+  const timestamp = new Date().toISOString();
+  const updates = [...readUpdates()];
+
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status: complaint.status,
+    message: `Admin escalation review: ${actionNote.trim()}`,
+    author: session.fullName,
+    timestamp,
+  };
+
+  complaint.updatedAt = timestamp;
+  updates.push(update);
+
+  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates]]);
+
+  try {
+    recordAdminAction({
+      complaintId,
+      action: 'ESCALATION_REVIEWED',
+      actor: {
+        name: session.fullName,
+        email: session.email,
+        role: session.role,
+      },
+      previousValue: 'Escalated',
+      newValue: 'Reviewed',
+      timestamp,
+      details: actionNote.trim(),
+    });
+  } catch (error) {
+    console.error('Failed to record escalation review audit:', error);
+  }
+
+  return { outcome: 'reviewed', update };
 }
 
 export type SubmitEscalationResult =
