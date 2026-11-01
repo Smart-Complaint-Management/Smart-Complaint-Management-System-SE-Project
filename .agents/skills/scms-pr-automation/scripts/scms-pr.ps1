@@ -44,7 +44,10 @@ Write-Host "[OK] Working tree is clean." -ForegroundColor Green
 # 4. Fetch latest origin/main
 Write-Host ""
 Write-Host "Fetching latest origin/$BaseBranch..."
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 git fetch origin $BaseBranch 2>&1 | Out-Null
+$ErrorActionPreference = $prevEAP
 
 # Check ahead/behind count
 $Counts = (git rev-list --left-right --count "origin/$BaseBranch...HEAD").Trim()
