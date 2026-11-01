@@ -20,12 +20,14 @@ const frontendDir = path.join(repoRoot, 'frontend');
 
 function runCmd(cmd, options = {}) {
   try {
-    return execSync(cmd, {
+    const res = execSync(cmd, {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: options.pipe ? 'pipe' : 'inherit',
+      shell: true,
       ...options,
-    }).trim();
+    });
+    return res ? res.trim() : '';
   } catch (error) {
     if (options.pipe && error.stdout) {
       return error.stdout.toString().trim();
@@ -35,22 +37,23 @@ function runCmd(cmd, options = {}) {
 }
 
 async function checkExistingPR(branch) {
-  // Try gh CLI first
+  // 1. Try gh CLI first if available
   try {
     const ghCheck = execSync(
       `gh pr list --head "${branch}" --base ${BASE_BRANCH} --state open --json number,url,title`,
-      { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
+      { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe', shell: true }
     ).trim();
     const parsed = JSON.parse(ghCheck);
-    if (parsed && parsed.length > 0) {
+    if (Array.isArray(parsed) && parsed.length > 0) {
       return parsed[0];
     }
   } catch {
     // Fall back to GitHub public REST API
   }
 
+  // 2. Query GitHub public REST API
   try {
-    const url = `https://api.github.com/repos/${REPO_FULL}/pulls?head=${REPO_OWNER}:${branch}&base=${BASE_BRANCH}&state=open`;
+    const url = `https://api.github.com/repos/${REPO_FULL}/pulls?head=${REPO_OWNER}:${encodeURIComponent(branch)}&base=${BASE_BRANCH}&state=open`;
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'SCMS-PR-Automation',
@@ -75,7 +78,7 @@ async function checkExistingPR(branch) {
 }
 
 async function main() {
-  console.log('=== SCMS Pull Request Automation ===\n');
+  console.log('=== SCMS Pull Request Automation (/scms-pr) ===\n');
 
   // 1. Identify current branch
   const currentBranch = runCmd('git branch --show-current', { pipe: true });
@@ -83,8 +86,8 @@ async function main() {
 
   // 2. Reject if on main
   if (currentBranch === BASE_BRANCH) {
-    console.error(`\n[ERROR] Cannot create a pull request from '${BASE_BRANCH}'.`);
-    console.error(`Please switch to a feature branch first (e.g., git checkout -b feature/<name>).`);
+    console.error(`\n[ERROR] Cannot create a pull request from default branch '${BASE_BRANCH}'.`);
+    console.error(`Please switch to a feature branch first (e.g., git checkout -b feature/<task-name>).`);
     process.exit(1);
   }
 
@@ -147,25 +150,21 @@ async function main() {
 
   const results = [];
   for (const check of checks) {
-    process.stdout.write(`Running ${check.name}... `);
+    console.log(`--> Running ${check.name} (${check.cmd})...`);
     const start = Date.now();
     try {
-      execSync(check.cmd, { cwd: frontendDir, stdio: 'pipe' });
+      execSync(check.cmd, { cwd: frontendDir, stdio: 'inherit', shell: true });
       const duration = ((Date.now() - start) / 1000).toFixed(2);
-      console.log(`PASSED (${duration}s)`);
+      console.log(`✓ ${check.name} PASSED (${duration}s)\n`);
       results.push({ name: check.name, status: 'PASSED', duration: `${duration}s` });
     } catch (error) {
-      console.log('FAILED');
-      console.error(`\n[ERROR] ${check.name} failed:\n`);
-      if (error.stdout) console.error(error.stdout.toString());
-      if (error.stderr) console.error(error.stderr.toString());
+      console.error(`\n[ERROR] ${check.name} failed.\n`);
       process.exit(1);
     }
   }
 
   // 7. Formulate PR title and description
-  console.log('\nGenerating PR title and description from commits...');
-  const commitLog = runCmd(`git log origin/${BASE_BRANCH}..HEAD --oneline`, { pipe: true });
+  console.log('Generating PR title and description from commits...');
   const topCommitSubject = runCmd('git log -1 --format=%s', { pipe: true });
   const commitSummary = runCmd(`git log origin/${BASE_BRANCH}..HEAD --format="- %h: %s"`, { pipe: true });
 
@@ -198,7 +197,7 @@ ${commitSummary}
   let hasGhCli = false;
 
   try {
-    execSync('gh --version', { stdio: 'pipe' });
+    execSync('gh --version', { stdio: 'pipe', shell: true });
     hasGhCli = true;
   } catch {
     hasGhCli = false;
@@ -209,17 +208,17 @@ ${commitSummary}
     try {
       const created = execSync(
         `gh pr create --base ${BASE_BRANCH} --head "${currentBranch}" --title "${prTitle.replace(/"/g, '\\"')}" --body "${prBody.replace(/"/g, '\\"')}"`,
-        { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }
+        { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe', shell: true }
       ).trim();
       prCreatedUrl = created;
       console.log(`✓ Pull request created: ${prCreatedUrl}`);
 
       // Attempt auto-merge configuration
       try {
-        execSync(`gh pr merge "${prCreatedUrl}" --auto --squash`, { cwd: repoRoot, stdio: 'pipe' });
+        execSync(`gh pr merge "${prCreatedUrl}" --auto --squash`, { cwd: repoRoot, stdio: 'pipe', shell: true });
         console.log(`✓ Auto-merge enabled (will merge automatically once required checks and approvals pass).`);
       } catch {
-        console.log(`Notice: Auto-merge not enabled on repository; PR is queued for manual approval.`);
+        console.log(`Notice: Auto-merge requires repository approval; PR remains open for review.`);
       }
     } catch (err) {
       console.error('Failed to create PR via gh CLI:', err.message);
@@ -232,7 +231,7 @@ ${commitSummary}
       console.log(`✓ Successfully pushed '${currentBranch}' to origin.`);
       console.log(`GitHub Actions Auto-PR workflow will now process this branch automatically.`);
     } catch (err) {
-      console.warn(`Warning on git push: ${err.message}`);
+      console.warn(`Notice on git push: ${err.message}`);
     }
 
     const webCompareUrl = `https://github.com/${REPO_FULL}/compare/${BASE_BRANCH}...${encodeURIComponent(currentBranch)}?expand=1`;
@@ -240,7 +239,7 @@ ${commitSummary}
     console.log(`  ${webCompareUrl}`);
   }
 
-  console.log('\n=== Verification Summary ===');
+  console.log('\n=== Quality Gate Verification Summary ===');
   results.forEach((r) => console.log(`✓ ${r.name}: ${r.status} (${r.duration})`));
   if (prCreatedUrl) {
     console.log(`\nPull Request URL: ${prCreatedUrl}`);
