@@ -89,6 +89,40 @@ describe('Admin Dashboard Calculations and Filters (SCMS-38, 39, 41, 81)', () =>
       expect(metrics.recentComplaints[0].id).toBe('CMP-2026-004');
       expect(metrics.recentComplaints[3].id).toBe('CMP-2026-001');
     });
+
+    it('gracefully handles empty complaint arrays', () => {
+      const metrics = computeDashboardMetrics([]);
+      expect(metrics.total).toBe(0);
+      expect(metrics.openCount).toBe(0);
+      expect(metrics.resolvedCount).toBe(0);
+      expect(metrics.escalatedCount).toBe(0);
+      expect(metrics.unassignedComplaints).toEqual([]);
+      expect(metrics.recentComplaints).toEqual([]);
+      expect(metrics.needsAttentionComplaints).toEqual([]);
+      expect(metrics.escalatedList).toEqual([]);
+    });
+
+    it('safely processes complaints with undefined or unusual field values without runtime errors', () => {
+      const edgeComplaints: Complaint[] = [
+        createComplaint({
+          id: 'CMP-EDGE-1',
+          assignedTo: undefined as unknown as string,
+          priority: undefined as unknown as Complaint['priority'],
+          submittedAt: 'invalid date',
+        }),
+        createComplaint({
+          id: 'CMP-EDGE-2',
+          assignedTo: '   ',
+          subject: '' as string,
+          description: undefined as unknown as string,
+        }),
+      ];
+
+      expect(() => computeDashboardMetrics(edgeComplaints)).not.toThrow();
+      const metrics = computeDashboardMetrics(edgeComplaints);
+      expect(metrics.total).toBe(2);
+      expect(metrics.unassignedComplaints.length).toBe(2);
+    });
   });
 
   describe('Search and Filter Evaluation (SCMS-41)', () => {
@@ -98,8 +132,8 @@ describe('Admin Dashboard Calculations and Filters (SCMS-38, 39, 41, 81)', () =>
       expect(results[0].id).toBe('CMP-2026-003');
     });
 
-    it('filters complaints by subject keyword', () => {
-      const results = filterComplaints(testComplaints, 'WiFi', 'all', 'all');
+    it('filters complaints by subject keyword case-insensitively', () => {
+      const results = filterComplaints(testComplaints, '   wifi   ', 'all', 'all');
       expect(results.length).toBe(1);
       expect(results[0].id).toBe('CMP-2026-004');
     });
@@ -134,6 +168,15 @@ describe('Admin Dashboard Calculations and Filters (SCMS-38, 39, 41, 81)', () =>
     it('returns empty array when no complaints match', () => {
       const results = filterComplaints(testComplaints, 'nonexistent query', 'all', 'all');
       expect(results.length).toBe(0);
+    });
+
+    it('safely filters complaints when subject or description is missing', () => {
+      const sparseComplaints = [
+        createComplaint({ id: 'CMP-SPARSE-1', subject: undefined as unknown as string, description: undefined as unknown as string }),
+      ];
+
+      expect(() => filterComplaints(sparseComplaints, 'test', 'all', 'all')).not.toThrow();
+      expect(filterComplaints(sparseComplaints, 'sparse', 'all', 'all').length).toBe(1);
     });
   });
 

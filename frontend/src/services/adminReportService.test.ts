@@ -96,6 +96,40 @@ describe('adminReportService', () => {
       expect(metrics.averageResolutionDays).toBe('2.0');
     });
 
+    it('handles 100% resolution rate scenario', () => {
+      const complaints = [
+        createComplaint({
+          status: 'resolved',
+          assignedTo: 'IT Support Desk',
+          submittedAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }),
+        createComplaint({
+          status: 'resolved',
+          assignedTo: 'Finance Office',
+          submittedAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-04T00:00:00.000Z',
+        }),
+      ];
+
+      const metrics = calculateReportMetrics(complaints);
+      expect(metrics.resolutionRate).toBe(100);
+      expect(metrics.assignmentRate).toBe(100);
+      expect(metrics.open).toBe(0);
+      expect(metrics.averageResolutionDays).toBe('2.0');
+    });
+
+    it('safely handles complaints with undefined assignedTo without throwing', () => {
+      const complaints = [
+        createComplaint({ assignedTo: undefined as unknown as string }),
+        createComplaint({ assignedTo: '   ' }),
+      ];
+
+      const metrics = calculateReportMetrics(complaints);
+      expect(metrics.unassigned).toBe(2);
+      expect(metrics.assigned).toBe(0);
+    });
+
     it('ignores invalid or negative resolution durations when computing average resolution time', () => {
       const complaints: Complaint[] = [
         createComplaint({
@@ -177,16 +211,17 @@ describe('adminReportService', () => {
         createComplaint({ assignedTo: 'IT Support Desk' }),
         createComplaint({ assignedTo: null }),
         createComplaint({ assignedTo: '   ' }),
+        createComplaint({ assignedTo: undefined as unknown as string }),
       ];
 
       const distribution = calculateTeamDistribution(complaints);
       const itTeam = distribution.find((t) => t.team === 'IT Support Desk');
       expect(itTeam?.count).toBe(2);
-      expect(itTeam?.percentage).toBe(50);
+      expect(itTeam?.percentage).toBe(40);
 
       const unassigned = distribution.find((t) => t.team === 'Unassigned');
-      expect(unassigned?.count).toBe(2);
-      expect(unassigned?.percentage).toBe(50);
+      expect(unassigned?.count).toBe(3);
+      expect(unassigned?.percentage).toBe(60);
     });
   });
 

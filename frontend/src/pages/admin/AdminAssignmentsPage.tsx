@@ -36,11 +36,11 @@ export function AdminAssignmentsPage() {
   }, []);
 
   const unassigned = complaints.filter(
-    (c) => c.assignedTo === null || c.assignedTo.trim() === ''
+    (c) => !c.assignedTo || typeof c.assignedTo !== 'string' || c.assignedTo.trim() === ''
   );
 
   const assigned = complaints.filter(
-    (c) => c.assignedTo !== null && c.assignedTo.trim() !== ''
+    (c) => Boolean(c.assignedTo && typeof c.assignedTo !== 'string' ? false : c.assignedTo && c.assignedTo.trim() !== '')
   );
 
   function handleTeamChange(complaintId: string, team: string) {

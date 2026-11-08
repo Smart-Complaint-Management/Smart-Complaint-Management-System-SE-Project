@@ -51,10 +51,10 @@ export function calculateReportMetrics(complaints: Complaint[]): ReportMetrics {
   const escalated = complaints.filter((c) => Boolean(c.isEscalated));
 
   const assigned = complaints.filter(
-    (c) => c.assignedTo !== null && c.assignedTo.trim() !== ''
+    (c) => Boolean(c.assignedTo && typeof c.assignedTo === 'string' && c.assignedTo.trim() !== '')
   );
   const unassigned = complaints.filter(
-    (c) => c.assignedTo === null || c.assignedTo.trim() === ''
+    (c) => !c.assignedTo || typeof c.assignedTo !== 'string' || c.assignedTo.trim() === ''
   );
 
   const resolutionRate = total > 0 ? Math.round((resolved.length / total) * 100) : 0;
@@ -182,7 +182,10 @@ export function calculateTeamDistribution(
   const counts = new Map<string, number>();
 
   for (const c of complaints) {
-    const team = c.assignedTo && c.assignedTo.trim() !== '' ? c.assignedTo.trim() : 'Unassigned';
+    const team =
+      c.assignedTo && typeof c.assignedTo === 'string' && c.assignedTo.trim() !== ''
+        ? c.assignedTo.trim()
+        : 'Unassigned';
     counts.set(team, (counts.get(team) ?? 0) + 1);
   }
 

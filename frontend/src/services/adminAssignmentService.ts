@@ -70,7 +70,7 @@ export function getAssignmentComplaints(): Complaint[] {
  */
 export function getUnassignedComplaints(): Complaint[] {
   return readStoredComplaints().filter(
-    (c) => c.assignedTo === null || c.assignedTo.trim() === ''
+    (c) => !c.assignedTo || typeof c.assignedTo !== 'string' || c.assignedTo.trim() === ''
   );
 }
 
@@ -79,7 +79,7 @@ export function getUnassignedComplaints(): Complaint[] {
  */
 export function getAssignedComplaints(): Complaint[] {
   return readStoredComplaints().filter(
-    (c) => c.assignedTo !== null && c.assignedTo.trim() !== ''
+    (c) => Boolean(c.assignedTo && typeof c.assignedTo === 'string' && c.assignedTo.trim() !== '')
   );
 }
 
@@ -125,7 +125,7 @@ export function assignComplaint(params: AssignComplaintParams): AssignmentResult
     };
   }
 
-  const isReassignment = previousTeam !== null && previousTeam.trim() !== '';
+  const isReassignment = Boolean(previousTeam && typeof previousTeam === 'string' && previousTeam.trim() !== '');
   const timestamp = new Date().toISOString();
 
   // Create updated complaint record with new timestamp (SCMS-37)

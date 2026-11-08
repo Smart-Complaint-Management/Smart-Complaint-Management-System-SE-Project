@@ -40,7 +40,7 @@ export function computeDashboardMetrics(complaints: Complaint[]): DashboardMetri
       escalatedItems.push(c);
     }
 
-    const isUnassigned = c.assignedTo === null || c.assignedTo.trim() === '';
+    const isUnassigned = !c.assignedTo || typeof c.assignedTo !== 'string' || c.assignedTo.trim() === '';
     if (isUnassigned) {
       unassigned.push(c);
     }
@@ -52,8 +52,11 @@ export function computeDashboardMetrics(complaints: Complaint[]): DashboardMetri
 
   const recent = [...complaints]
     .sort(
-      (a, b) =>
-        new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+      (a, b) => {
+        const timeB = new Date(b.submittedAt).getTime();
+        const timeA = new Date(a.submittedAt).getTime();
+        return (Number.isFinite(timeB) ? timeB : 0) - (Number.isFinite(timeA) ? timeA : 0);
+      }
     )
     .slice(0, 5);
 
@@ -81,11 +84,15 @@ export function filterDashboardComplaints(
   const query = searchQuery.trim().toLowerCase();
 
   return complaints.filter((c) => {
+    const id = (c.id || '').toLowerCase();
+    const subject = (c.subject || '').toLowerCase();
+    const description = (c.description || '').toLowerCase();
+
     const matchesSearch =
       query === '' ||
-      c.id.toLowerCase().includes(query) ||
-      c.subject.toLowerCase().includes(query) ||
-      c.description.toLowerCase().includes(query);
+      id.includes(query) ||
+      subject.includes(query) ||
+      description.includes(query);
 
     const matchesStatus =
       statusFilter === 'all' || c.status === statusFilter;
