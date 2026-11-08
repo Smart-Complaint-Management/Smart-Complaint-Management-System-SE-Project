@@ -8,6 +8,7 @@ import {
 } from './adminAssignmentService';
 import { PRIMARY_COMPLAINTS_KEY } from './dataMigrationService';
 import { getAdminAuditEvents } from './adminAuditService';
+import { ALLOWED_ASSIGNMENT_TEAMS } from '@/types/admin';
 import type { Complaint } from '@/types';
 import type { AuditActor } from '@/types/admin';
 
@@ -51,6 +52,7 @@ describe('adminAssignmentService', () => {
       expect(isValidAssignmentTeam('Random Department')).toBe(false);
       expect(isValidAssignmentTeam(null)).toBe(false);
       expect(isValidAssignmentTeam(undefined)).toBe(false);
+      expect(isValidAssignmentTeam('  IT Support Desk  ')).toBe(true);
     });
   });
 
@@ -114,6 +116,40 @@ describe('adminAssignmentService', () => {
       expect(auditEvents[0].previousValue).toBeNull();
       expect(auditEvents[0].newValue).toBe('IT Support Desk');
       expect(auditEvents[0].actor.name).toBe('Dr. Malik');
+    });
+
+    it('trims whitespace around team names during assignment', () => {
+      window.localStorage.setItem(
+        PRIMARY_COMPLAINTS_KEY,
+        JSON.stringify([createComplaint({ id: 'CMP-2026-001', assignedTo: null })])
+      );
+
+      const result = assignComplaint({
+        complaintId: 'CMP-2026-001',
+        team: '   Facilities Maintenance   ',
+        actor: mockActor,
+      });
+
+      expect(result.outcome).toBe('assigned');
+      expect(result.complaint?.assignedTo).toBe('Facilities Maintenance');
+    });
+
+    it('supports assigning to every allowed university department', () => {
+      for (const dept of ALLOWED_ASSIGNMENT_TEAMS) {
+        window.localStorage.setItem(
+          PRIMARY_COMPLAINTS_KEY,
+          JSON.stringify([createComplaint({ id: `CMP-${dept}`, assignedTo: null })])
+        );
+
+        const result = assignComplaint({
+          complaintId: `CMP-${dept}`,
+          team: dept,
+          actor: mockActor,
+        });
+
+        expect(result.outcome).toBe('assigned');
+        expect(result.complaint?.assignedTo).toBe(dept);
+      }
     });
 
     it('successfully reassigns an already assigned complaint with before/after audit values', () => {
@@ -190,11 +226,13 @@ describe('adminAssignmentService', () => {
   });
 
   describe('getUnassignedComplaints and getAssignedComplaints', () => {
-    it('correctly separates assigned and unassigned complaints', () => {
+    it('correctly separates assigned and unassigned complaints including undefined and blank values', () => {
       const complaints = [
         createComplaint({ id: 'CMP-1', assignedTo: null }),
         createComplaint({ id: 'CMP-2', assignedTo: 'IT Support Desk' }),
         createComplaint({ id: 'CMP-3', assignedTo: '' }),
+        createComplaint({ id: 'CMP-4', assignedTo: '   ' }),
+        createComplaint({ id: 'CMP-5', assignedTo: undefined as unknown as string }),
       ];
       window.localStorage.setItem(
         PRIMARY_COMPLAINTS_KEY,
@@ -204,8 +242,8 @@ describe('adminAssignmentService', () => {
       const unassigned = getUnassignedComplaints();
       const assigned = getAssignedComplaints();
 
-      expect(unassigned.length).toBe(2);
-      expect(unassigned.map((c) => c.id)).toEqual(['CMP-1', 'CMP-3']);
+      expect(unassigned.length).toBe(4);
+      expect(unassigned.map((c) => c.id)).toEqual(['CMP-1', 'CMP-3', 'CMP-4', 'CMP-5']);
 
       expect(assigned.length).toBe(1);
       expect(assigned[0].id).toBe('CMP-2');
