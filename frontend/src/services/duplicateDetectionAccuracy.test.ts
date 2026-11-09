@@ -1,4 +1,3 @@
-```typescript
 import { describe, expect, it } from 'vitest';
 import {
   findPotentialDuplicates,
@@ -138,4 +137,4 @@ describe('duplicate detection accuracy', () => {
     expect(result.length).toBeGreaterThan(0);
   });
 });
-```
+
