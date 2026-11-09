@@ -1,3 +1,4 @@
+```typescript
 import { describe, expect, it } from 'vitest';
 import {
   findPotentialDuplicates,
@@ -34,7 +35,7 @@ describe('duplicate detection accuracy', () => {
         'Request to extend the library opening hours during examinations.',
       category: 'academic',
     },
-  ];
+  ] as unknown as Parameters<typeof findPotentialDuplicates>[1];
 
   const testCases = [
     {
@@ -88,12 +89,12 @@ describe('duplicate detection accuracy', () => {
       expected: false,
     },
     {
-      name: 'does not flag an unrelated transport complaint',
+      name: 'does not flag an unrelated facilities complaint',
       input: {
         subject: 'College bus timing',
         description:
           'Request to change the departure time of the college bus.',
-        category: 'transport',
+        category: 'facilities',
       },
       expected: false,
     },
@@ -137,3 +138,4 @@ describe('duplicate detection accuracy', () => {
     expect(result.length).toBeGreaterThan(0);
   });
 });
+```
