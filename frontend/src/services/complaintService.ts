@@ -23,6 +23,7 @@ import {
 } from './adminAuditService';
 
 import { migrateComplaintData } from './dataMigrationService';
+import { findPotentialDuplicates } from './duplicateDetectionService';
 
 export interface NewComplaintInput {
   subject: string;
@@ -255,6 +256,9 @@ function nextComplaintId(): string {
 
 /**
  * Create a new complaint.
+ *
+ * Automatically classifies priority and checks for possible duplicates.
+ * Duplicate complaints are never merged or deleted.
  */
 export async function createComplaint(
   input: NewComplaintInput,
@@ -270,6 +274,24 @@ export async function createComplaint(
     input.category,
   );
 
+  // Compare the new complaint with existing complaints.
+  const existingComplaints = readComplaints();
+
+  const possibleDuplicates = findPotentialDuplicates(
+    {
+      subject,
+      description,
+      category: input.category,
+    },
+    existingComplaints,
+  );
+
+  // Store the strongest possible match without merging records.
+  const possibleDuplicateId =
+    possibleDuplicates.length > 0
+      ? possibleDuplicates[0].complaint.id
+      : null;
+
   const now = new Date().toISOString();
 
   const complaint: Complaint = {
@@ -284,10 +306,10 @@ export async function createComplaint(
     submittedAt: now,
     updatedAt: now,
     isEscalated: false,
-    possibleDuplicateId: null,
+    possibleDuplicateId,
   };
 
-  const complaints = [...readComplaints()];
+  const complaints = [...existingComplaints];
   complaints.unshift(complaint);
 
   const updates = [...readUpdates()];
