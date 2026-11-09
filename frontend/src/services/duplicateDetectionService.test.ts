@@ -13,7 +13,7 @@ function createComplaint(
     subject: 'WiFi not working in library',
     description:
       'The WiFi connection in the library is not working. Students cannot access the internet.',
-    category: 'technical',
+    category: 'it_infrastructure',
     priority: 'medium',
     status: 'submitted',
     submittedBy: 'student@example.com',
@@ -27,15 +27,13 @@ function createComplaint(
 
 describe('Duplicate Detection Service', () => {
   it('identifies complaints with identical subjects', () => {
-    const existing = [
-      createComplaint(),
-    ];
+    const existing = [createComplaint()];
 
     const matches = findPotentialDuplicates(
       {
         subject: 'WiFi not working in library',
         description: 'Students cannot connect to the internet.',
-        category: 'technical',
+        category: 'it_infrastructure',
       },
       existing,
     );
@@ -58,7 +56,7 @@ describe('Duplicate Detection Service', () => {
         subject: 'WiFi connectivity problem',
         description:
           'Students are unable to connect to the WiFi network in the college library.',
-        category: 'technical',
+        category: 'it_infrastructure',
       },
       existing,
     );
@@ -108,7 +106,7 @@ describe('Duplicate Detection Service', () => {
         subject: 'WiFi not working in library',
         description:
           'The WiFi connection in the library is not working. Students cannot access the internet.',
-        category: 'technical',
+        category: 'it_infrastructure',
       },
       existing,
     );
@@ -134,7 +132,7 @@ describe('Duplicate Detection Service', () => {
         subject: 'WiFi not working in library',
         description:
           'The WiFi connection in the library is not working.',
-        category: 'technical',
+        category: 'it_infrastructure',
       },
       existing,
       'complaint-1',
@@ -144,16 +142,14 @@ describe('Duplicate Detection Service', () => {
   });
 
   it('returns true when potential duplicates exist', () => {
-    const existing = [
-      createComplaint(),
-    ];
+    const existing = [createComplaint()];
 
     const result = hasPotentialDuplicates(
       {
         subject: 'WiFi not working in library',
         description:
           'The WiFi connection in the library is not working.',
-        category: 'technical',
+        category: 'it_infrastructure',
       },
       existing,
     );
@@ -182,9 +178,7 @@ describe('Duplicate Detection Service', () => {
   });
 
   it('does not modify existing complaint records', () => {
-    const existing = [
-      createComplaint(),
-    ];
+    const existing = [createComplaint()];
 
     const originalComplaint = {
       ...existing[0],
@@ -195,7 +189,7 @@ describe('Duplicate Detection Service', () => {
         subject: 'WiFi not working in library',
         description:
           'The WiFi connection in the library is not working.',
-        category: 'technical',
+        category: 'it_infrastructure',
       },
       existing,
     );
