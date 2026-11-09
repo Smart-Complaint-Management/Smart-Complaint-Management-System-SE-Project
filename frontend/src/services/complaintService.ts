@@ -12,6 +12,7 @@ import type {
   ComplaintStatus,
   ComplaintUpdate,
   AppNotification,
+  DuplicateReviewStatus,
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
@@ -255,10 +256,7 @@ function nextComplaintId(): string {
 }
 
 /**
- * Create a new complaint.
- *
- * Automatically classifies priority and checks for possible duplicates.
- * Duplicate complaints are never merged or deleted.
+ * Create a new complaint and identify possible duplicates.
  */
 export async function createComplaint(
   input: NewComplaintInput,
@@ -274,7 +272,6 @@ export async function createComplaint(
     input.category,
   );
 
-  // Compare the new complaint with existing complaints.
   const existingComplaints = readComplaints();
 
   const possibleDuplicates = findPotentialDuplicates(
@@ -286,7 +283,6 @@ export async function createComplaint(
     existingComplaints,
   );
 
-  // Store the strongest possible match without merging records.
   const possibleDuplicateId =
     possibleDuplicates.length > 0
       ? possibleDuplicates[0].complaint.id
@@ -307,6 +303,9 @@ export async function createComplaint(
     updatedAt: now,
     isEscalated: false,
     possibleDuplicateId,
+    duplicateReviewStatus: possibleDuplicateId
+      ? 'pending'
+      : undefined,
   };
 
   const complaints = [...existingComplaints];
@@ -420,6 +419,7 @@ export function searchComplaints(
       complaint.category,
       complaint.status,
       complaint.priority,
+      complaint.possibleDuplicateId ?? '',
     ];
 
     return fields.some((field) =>
@@ -456,6 +456,7 @@ export function filterComplaints(
       complaint.category,
       complaint.status,
       complaint.priority,
+      complaint.possibleDuplicateId ?? '',
     ];
 
     const matchesQuery =
@@ -513,7 +514,6 @@ export type UpdateComplaintPriorityResult =
 
 /**
  * Allow administrators to manually change complaint priority.
- * Every successful change is recorded in the audit log.
  */
 export function updateComplaintPriority(
   complaintId: string,
@@ -576,6 +576,110 @@ export function updateComplaintPriority(
   return {
     outcome: 'updated',
     complaint,
+  };
+}
+
+/* -------------------------------------------------------
+   ADMIN DUPLICATE REVIEW
+------------------------------------------------------- */
+
+export type ReviewDuplicateResult =
+  | {
+      outcome: 'reviewed';
+      complaint: Complaint;
+      duplicate: Complaint;
+    }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'not_found' }
+  | { outcome: 'no_duplicate' }
+  | { outcome: 'duplicate_not_found' }
+  | { outcome: 'unchanged' };
+
+/**
+ * Allow an administrator to confirm or reject a suspected duplicate.
+ *
+ * Both complaint records remain separate.
+ * No complaint is merged, deleted, or automatically closed.
+ */
+export function reviewDuplicate(
+  complaintId: string,
+  decision: Exclude<DuplicateReviewStatus, 'pending'>,
+  session: AuthSession | null,
+): ReviewDuplicateResult {
+  if (session?.role !== 'admin') {
+    return { outcome: 'unauthorized' };
+  }
+
+  const complaints = readComplaints().map((item) => ({
+    ...item,
+  }));
+
+  const complaint = complaints.find(
+    (item) => item.id === complaintId,
+  );
+
+  if (!complaint) {
+    return { outcome: 'not_found' };
+  }
+
+  if (!complaint.possibleDuplicateId) {
+    return { outcome: 'no_duplicate' };
+  }
+
+  const duplicate = complaints.find(
+    (item) => item.id === complaint.possibleDuplicateId,
+  );
+
+  if (!duplicate) {
+    return { outcome: 'duplicate_not_found' };
+  }
+
+  if (
+    complaint.duplicateReviewStatus === decision &&
+    duplicate.duplicateReviewStatus === decision
+  ) {
+    return { outcome: 'unchanged' };
+  }
+
+  const timestamp = new Date().toISOString();
+
+  complaint.duplicateReviewStatus = decision;
+  complaint.duplicateReviewedBy = session.fullName;
+  complaint.duplicateReviewedAt = timestamp;
+  complaint.updatedAt = timestamp;
+
+  duplicate.duplicateReviewStatus = decision;
+  duplicate.duplicateReviewedBy = session.fullName;
+  duplicate.duplicateReviewedAt = timestamp;
+  duplicate.updatedAt = timestamp;
+
+  const updates = [...readUpdates()];
+
+  const decisionMessage =
+    decision === 'confirmed'
+      ? `Admin confirmed that ${complaint.id} and ${duplicate.id} are possible duplicate complaints. Both complaint records have been retained.`
+      : `Admin reviewed ${complaint.id} and ${duplicate.id} and marked them as separate complaints. Both complaint records have been retained.`;
+
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status: complaint.status,
+    message: decisionMessage,
+    author: session.fullName,
+    timestamp,
+  };
+
+  updates.push(update);
+
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+  ]);
+
+  return {
+    outcome: 'reviewed',
+    complaint,
+    duplicate,
   };
 }
 
