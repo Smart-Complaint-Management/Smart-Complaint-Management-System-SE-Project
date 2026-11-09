@@ -17,11 +17,13 @@ import {
   updateComplaintStatus,
   updateComplaintPriority,
   getPriorityLevels,
+  reviewDuplicate,
 } from '@/services/complaintService';
 
 import type {
   ComplaintPriority,
   ComplaintStatus,
+  DuplicateReviewStatus,
 } from '@/types';
 
 import {
@@ -99,6 +101,16 @@ export function ComplaintDetailPage() {
   const [isUpdatingPriority, setIsUpdatingPriority] =
     useState(false);
 
+  // Duplicate review state
+  const [duplicateReviewStatus, setDuplicateReviewStatus] =
+    useState<DuplicateReviewStatus>(
+      foundComplaint?.duplicateReviewStatus ?? 'pending',
+    );
+  const [duplicateReviewMessage, setDuplicateReviewMessage] =
+    useState('');
+  const [isReviewingDuplicate, setIsReviewingDuplicate] =
+    useState(false);
+
   useEffect(() => {
     let active = true;
 
@@ -116,6 +128,8 @@ export function ComplaintDetailPage() {
 
     setPendingPriority(null);
     setPriorityMessage('');
+    setDuplicateReviewStatus(foundComplaint?.duplicateReviewStatus ?? 'pending');
+    setDuplicateReviewMessage('');
 
     setUpdates(
       getComplaintUpdates().filter(
@@ -454,6 +468,70 @@ export function ComplaintDetailPage() {
     }
   };
 
+  // Admin decision for a suspected duplicate pair
+  const handleDuplicateReview = async (
+    decision: 'confirmed' | 'not_duplicate',
+  ) => {
+    if (isReviewingDuplicate) return;
+
+    if (session?.role !== 'admin') {
+      setDuplicateReviewMessage(
+        'Access denied. Only administrators can review possible duplicates.',
+      );
+      return;
+    }
+
+    if (!id || !complaint.possibleDuplicateId) {
+      setDuplicateReviewMessage('No linked complaint is available to review.');
+      return;
+    }
+
+    if (/^\\d+$/.test(id)) {
+      setDuplicateReviewMessage(
+        'Duplicate review is currently available for demo complaints only. Backend API support is required for database complaints.',
+      );
+      return;
+    }
+
+    setIsReviewingDuplicate(true);
+    setDuplicateReviewMessage('');
+
+    try {
+      const result = reviewDuplicate(id, decision, session);
+
+      if (result.outcome === 'unauthorized') {
+        setDuplicateReviewMessage(
+          'Access denied. Only administrators can review possible duplicates.',
+        );
+        return;
+      }
+
+      if (result.outcome === 'not_found') {
+        setDuplicateReviewMessage(
+          'The complaint or its linked complaint could not be found.',
+        );
+        return;
+      }
+
+      if (result.outcome === 'reviewed') {
+        setDuplicateReviewStatus(decision);
+        setDuplicateReviewMessage(
+          decision === 'confirmed'
+            ? 'Duplicate confirmed. Both complaints remain separate records.'
+            : 'Marked as not a duplicate. Both complaints remain separate records.',
+        );
+      }
+    } catch (error) {
+      setDuplicateReviewMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not save the duplicate review. Please try again.',
+      );
+    } finally {
+      setIsReviewingDuplicate(false);
+    }
+  };
+
   return (
     <div>
       <button
@@ -748,13 +826,13 @@ export function ComplaintDetailPage() {
             </div>
           )}
 
-          {/* Duplicate indicator */}
+          {/* Duplicate indicator and administrative review */}
           {complaint.possibleDuplicateId && (
             <div className="card border-amber-200 bg-amber-50/50 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
 
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-amber-800">
                     Possible Duplicate Detected
                   </p>
@@ -769,6 +847,61 @@ export function ComplaintDetailPage() {
                     </a>
                     . Review both before proceeding.
                   </p>
+
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-ink-700">
+                      Duplicate review status:{' '}
+                      <span className="capitalize">
+                        {duplicateReviewStatus === 'pending'
+                          ? 'Pending review'
+                          : duplicateReviewStatus === 'confirmed'
+                            ? 'Confirmed duplicate'
+                            : 'Not a duplicate'}
+                      </span>
+                    </p>
+
+                    {complaint.duplicateReviewedBy && (
+                      <p className="mt-1 text-xs text-ink-500">
+                        Reviewed by {complaint.duplicateReviewedBy}
+                        {complaint.duplicateReviewedAt
+                          ? ` on ${formatDateTime(complaint.duplicateReviewedAt)}`
+                          : ''}
+                      </p>
+                    )}
+
+                    {isAdmin && duplicateReviewStatus === 'pending' && (
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <button
+                          type="button"
+                          className="btn btn-primary flex-1"
+                          onClick={() => handleDuplicateReview('confirmed')}
+                          disabled={isReviewingDuplicate}
+                        >
+                          {isReviewingDuplicate
+                            ? 'Saving review...'
+                            : 'Confirm Duplicate'}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary flex-1"
+                          onClick={() => handleDuplicateReview('not_duplicate')}
+                          disabled={isReviewingDuplicate}
+                        >
+                          Mark as Not Duplicate
+                        </button>
+                      </div>
+                    )}
+
+                    {duplicateReviewMessage && (
+                      <p
+                        role="status"
+                        className="mt-2 text-xs text-ink-600"
+                      >
+                        {duplicateReviewMessage}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
