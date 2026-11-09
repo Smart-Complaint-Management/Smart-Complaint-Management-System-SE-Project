@@ -7,13 +7,15 @@ export const ALLOWED_ASSIGNMENT_TEAMS = [
   'Finance Office',
 ] as const;
 
-export type AssignmentTeam = (typeof ALLOWED_ASSIGNMENT_TEAMS)[number];
+export type AssignmentTeam =
+  (typeof ALLOWED_ASSIGNMENT_TEAMS)[number];
 
 export type AdminActionType =
   | 'ASSIGNED'
   | 'REASSIGNED'
   | 'STATUS_CHANGED'
-  | 'ESCALATION_REVIEWED';
+  | 'ESCALATION_REVIEWED'
+  | 'PRIORITY_CHANGED';
 
 export interface AuditActor {
   name: string;
@@ -28,7 +30,7 @@ export interface AdminAuditEvent {
   actor: AuditActor;
   previousValue: string | null;
   newValue: string;
-  timestamp: string; // ISO date
+  timestamp: string;
   details?: string;
 }
 

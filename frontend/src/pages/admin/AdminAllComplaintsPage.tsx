@@ -50,14 +50,20 @@ const assignmentOptions: FilterOption[] = [
   { value: 'unassigned', label: 'Unassigned' },
 ];
 
+const duplicateOptions: FilterOption[] = [
+  { value: 'all', label: 'All Complaints' },
+  { value: 'yes', label: 'Possible Duplicates' },
+  { value: 'no', label: 'No Possible Duplicate' },
+];
+
 export function AdminAllComplaintsPage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [assignmentFilter, setAssignmentFilter] = useState('all');
+  const [duplicateFilter, setDuplicateFilter] = useState('all');
 
-  // Read saved complaints when this page renders.
   const complaints: Complaint[] = getComplaints();
 
   const filtered = useMemo(() => {
@@ -76,6 +82,7 @@ export function AdminAllComplaintsPage() {
         statusLabels[complaint.status] ?? '',
         complaint.priority,
         priorityLabels[complaint.priority] ?? '',
+        complaint.possibleDuplicateId ?? '',
       ];
 
       const matchesSearch =
@@ -103,12 +110,20 @@ export function AdminAllComplaintsPage() {
         (assignmentFilter === 'unassigned' &&
           complaint.assignedTo === null);
 
+      const matchesDuplicate =
+        duplicateFilter === 'all' ||
+        (duplicateFilter === 'yes' &&
+          complaint.possibleDuplicateId !== null) ||
+        (duplicateFilter === 'no' &&
+          complaint.possibleDuplicateId === null);
+
       return (
         matchesSearch &&
         matchesCategory &&
         matchesStatus &&
         matchesPriority &&
-        matchesAssignment
+        matchesAssignment &&
+        matchesDuplicate
       );
     });
   }, [
@@ -118,6 +133,7 @@ export function AdminAllComplaintsPage() {
     statusFilter,
     priorityFilter,
     assignmentFilter,
+    duplicateFilter,
   ]);
 
   const hasActiveFilters =
@@ -125,7 +141,8 @@ export function AdminAllComplaintsPage() {
     categoryFilter !== 'all' ||
     statusFilter !== 'all' ||
     priorityFilter !== 'all' ||
-    assignmentFilter !== 'all';
+    assignmentFilter !== 'all' ||
+    duplicateFilter !== 'all';
 
   function clearFilters() {
     setSearch('');
@@ -133,7 +150,12 @@ export function AdminAllComplaintsPage() {
     setStatusFilter('all');
     setPriorityFilter('all');
     setAssignmentFilter('all');
+    setDuplicateFilter('all');
   }
+
+  const duplicateCount = complaints.filter(
+    (complaint) => complaint.possibleDuplicateId !== null,
+  ).length;
 
   return (
     <div>
@@ -141,6 +163,26 @@ export function AdminAllComplaintsPage() {
         title="All Complaints"
         description="Search, filter, and manage every complaint across the platform."
       />
+
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="card p-4">
+          <p className="text-sm text-ink-500">
+            Total Complaints
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-ink-800">
+            {complaints.length}
+          </p>
+        </div>
+
+        <div className="card p-4">
+          <p className="text-sm text-ink-500">
+            Complaints with Possible Duplicates
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-amber-600">
+            {duplicateCount}
+          </p>
+        </div>
+      </div>
 
       <div className="card">
         <div className="border-b border-ink-100 p-4">
@@ -179,6 +221,13 @@ export function AdminAllComplaintsPage() {
                 value={assignmentFilter}
                 options={assignmentOptions}
                 onChange={setAssignmentFilter}
+              />
+
+              <FilterControl
+                label="Duplicates"
+                value={duplicateFilter}
+                options={duplicateOptions}
+                onChange={setDuplicateFilter}
               />
             </FilterBar>
           </div>
@@ -232,6 +281,7 @@ export function AdminAllComplaintsPage() {
               showPriority
               showAssignedTo
               showEscalation
+              showDuplicateInfo
             />
           </>
         )}

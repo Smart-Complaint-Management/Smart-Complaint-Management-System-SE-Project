@@ -12,15 +12,19 @@ import type {
   ComplaintStatus,
   ComplaintUpdate,
   AppNotification,
+  DuplicateReviewStatus,
 } from '@/types';
 
 import type { AuthSession } from '@/pages/auth/authContext';
+
 import {
   createAuditEvent,
   getAdminAuditEvents,
   ADMIN_AUDIT_STORAGE_KEY,
 } from './adminAuditService';
+
 import { migrateComplaintData } from './dataMigrationService';
+import { findPotentialDuplicates } from './duplicateDetectionService';
 
 export interface NewComplaintInput {
   subject: string;
@@ -34,21 +38,41 @@ const STORAGE_KEY = 'scms_complaints';
 const UPDATES_STORAGE_KEY = 'scms_complaint_updates';
 const NOTIFICATIONS_STORAGE_KEY = 'scms_notifications';
 
+function isBrowser(): boolean {
+  return typeof window !== 'undefined';
+}
+
 function saveStorageBatch(entries: [string, unknown][]): void {
   if (!isBrowser()) return;
+
   const previous: (readonly [string, string | null])[] = [];
+
   try {
-    for (const [key] of entries) previous.push([key, window.localStorage.getItem(key)]);
-    for (const [key, value] of entries) window.localStorage.setItem(key, JSON.stringify(value));
+    for (const [key] of entries) {
+      previous.push([key, window.localStorage.getItem(key)]);
+    }
+
+    for (const [key, value] of entries) {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    }
   } catch (error) {
     for (const [key, value] of previous) {
       try {
-        if (value === null) window.localStorage.removeItem(key);
-        else window.localStorage.setItem(key, value);
-      } catch { /* Best effort rollback if browser storage is unavailable. */ }
+        if (value === null) {
+          window.localStorage.removeItem(key);
+        } else {
+          window.localStorage.setItem(key, value);
+        }
+      } catch {
+        // Best effort rollback.
+      }
     }
+
     console.error('Unable to save complaint updates:', error);
-    throw new Error('Could not save this change in browser storage. Your previous data was restored where possible.');
+
+    throw new Error(
+      'Could not save this change in browser storage. Your previous data was restored where possible.',
+    );
   }
 }
 
@@ -60,21 +84,7 @@ const PRIORITY_LEVELS: ComplaintPriority[] = [
 ];
 
 /**
- * Safely checks whether browser storage is available.
- */
-function isBrowser(): boolean {
-  return typeof window !== 'undefined';
-}
-
-/**
- * Assign priority using transparent, rule-based classification.
- *
- * Critical: immediate safety risks or emergencies.
- * High: urgent incidents requiring prompt attention.
- * Medium: recurring or disruptive problems.
- * Low: ordinary requests and minor issues.
- *
- * This is a heuristic classifier, not a trained ML model.
+ * Automatically classify complaint priority.
  */
 export function classifyComplaintPriority(
   subject: string,
@@ -143,18 +153,20 @@ export function classifyComplaintPriority(
 }
 
 /**
- * Load complaints from localStorage.
- *
- * Existing mock records are used when no saved records exist.
+ * Load complaints from browser storage.
  */
 function readComplaints(): Complaint[] {
   if (isBrowser()) {
     try {
       migrateComplaintData();
     } catch (error) {
-      console.warn('Data migration check failed on readComplaints:', error);
+      console.warn(
+        'Data migration check failed on readComplaints:',
+        error,
+      );
     }
   }
+
   if (!isBrowser()) {
     return mockComplaints;
   }
@@ -176,9 +188,6 @@ function readComplaints(): Complaint[] {
   return mockComplaints;
 }
 
-/**
- * Persist complaints in browser storage.
- */
 /**
  * Load complaint timeline updates.
  */
@@ -205,10 +214,7 @@ function readUpdates(): ComplaintUpdate[] {
 }
 
 /**
- * Persist complaint timeline updates.
- */
-/**
- * Load notifications recorded in this browser, falling back to the examples.
+ * Load notifications.
  */
 function readNotifications(): AppNotification[] {
   if (!isBrowser()) {
@@ -233,10 +239,7 @@ function readNotifications(): AppNotification[] {
 }
 
 /**
- * Persist notifications in browser storage.
- */
-/**
- * Generate a complaint ID using the current year and existing IDs.
+ * Generate the next complaint ID.
  */
 function nextComplaintId(): string {
   const year = new Date().getFullYear();
@@ -253,7 +256,7 @@ function nextComplaintId(): string {
 }
 
 /**
- * Create a complaint and persist the assigned priority.
+ * Create a new complaint and identify possible duplicates.
  */
 export async function createComplaint(
   input: NewComplaintInput,
@@ -269,6 +272,22 @@ export async function createComplaint(
     input.category,
   );
 
+  const existingComplaints = readComplaints();
+
+  const possibleDuplicates = findPotentialDuplicates(
+    {
+      subject,
+      description,
+      category: input.category,
+    },
+    existingComplaints,
+  );
+
+  const possibleDuplicateId =
+    possibleDuplicates.length > 0
+      ? possibleDuplicates[0].complaint.id
+      : null;
+
   const now = new Date().toISOString();
 
   const complaint: Complaint = {
@@ -283,11 +302,15 @@ export async function createComplaint(
     submittedAt: now,
     updatedAt: now,
     isEscalated: false,
-    possibleDuplicateId: null,
+    possibleDuplicateId,
+    duplicateReviewStatus: possibleDuplicateId
+      ? 'pending'
+      : undefined,
   };
 
-  const complaints = [...readComplaints()];
+  const complaints = [...existingComplaints];
   complaints.unshift(complaint);
+
   const updates = [...readUpdates()];
 
   updates.push({
@@ -299,24 +322,30 @@ export async function createComplaint(
     timestamp: now,
   });
 
-  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates]]);
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+  ]);
 
   return complaint;
 }
 
 /**
- * Return all complaints.
+ * Return one complaint.
  */
 export function getComplaint(id: string): Complaint | undefined {
-  return readComplaints().find((c) => c.id === id);
+  return readComplaints().find((complaint) => complaint.id === id);
 }
 
+/**
+ * Return all complaints.
+ */
 export function getComplaints(): Complaint[] {
   return readComplaints();
 }
 
 /**
- * Return complaint timeline updates from browser storage or the mock fallback.
+ * Return complaint timeline updates.
  */
 export function getComplaintUpdates(): ComplaintUpdate[] {
   return readUpdates();
@@ -338,7 +367,7 @@ export function getMyComplaints(
 }
 
 /**
- * Return notifications only for complaints owned by the authenticated user.
+ * Return notifications belonging to the authenticated user.
  */
 export function getMyNotifications(
   session: AuthSession | null,
@@ -349,7 +378,9 @@ export function getMyNotifications(
 
   const ownedComplaintIds = new Set(
     readComplaints()
-      .filter((complaint) => complaint.submittedBy === session.fullName)
+      .filter(
+        (complaint) => complaint.submittedBy === session.fullName,
+      )
       .map((complaint) => complaint.id),
   );
 
@@ -359,7 +390,7 @@ export function getMyNotifications(
 }
 
 /**
- * Return the predefined priority levels.
+ * Return predefined priority levels.
  */
 export function getPriorityLevels(): ComplaintPriority[] {
   return [...PRIORITY_LEVELS];
@@ -388,6 +419,7 @@ export function searchComplaints(
       complaint.category,
       complaint.status,
       complaint.priority,
+      complaint.possibleDuplicateId ?? '',
     ];
 
     return fields.some((field) =>
@@ -406,7 +438,7 @@ export interface ComplaintFilters {
 }
 
 /**
- * Filter complaints using multiple criteria simultaneously.
+ * Filter complaints using multiple criteria.
  */
 export function filterComplaints(
   filters: ComplaintFilters,
@@ -424,6 +456,7 @@ export function filterComplaints(
       complaint.category,
       complaint.status,
       complaint.priority,
+      complaint.possibleDuplicateId ?? '',
     ];
 
     const matchesQuery =
@@ -468,6 +501,192 @@ export function filterComplaints(
   });
 }
 
+/* -------------------------------------------------------
+   ADMIN PRIORITY OVERRIDE
+------------------------------------------------------- */
+
+export type UpdateComplaintPriorityResult =
+  | { outcome: 'updated'; complaint: Complaint }
+  | { outcome: 'unchanged' }
+  | { outcome: 'not_found' }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'invalid_priority' };
+
+/**
+ * Allow administrators to manually change complaint priority.
+ */
+export function updateComplaintPriority(
+  complaintId: string,
+  priority: ComplaintPriority,
+  session: AuthSession | null,
+): UpdateComplaintPriorityResult {
+  if (session?.role !== 'admin') {
+    return { outcome: 'unauthorized' };
+  }
+
+  if (!PRIORITY_LEVELS.includes(priority)) {
+    return { outcome: 'invalid_priority' };
+  }
+
+  const complaints = [...readComplaints()].map((item) => ({
+    ...item,
+  }));
+
+  const complaint = complaints.find(
+    (item) => item.id === complaintId,
+  );
+
+  if (!complaint) {
+    return { outcome: 'not_found' };
+  }
+
+  if (complaint.priority === priority) {
+    return { outcome: 'unchanged' };
+  }
+
+  const previousPriority = complaint.priority;
+  const timestamp = new Date().toISOString();
+
+  complaint.priority = priority;
+  complaint.updatedAt = timestamp;
+
+  const currentAudit = getAdminAuditEvents();
+
+  const auditEvent = createAuditEvent({
+    complaintId,
+    action: 'PRIORITY_CHANGED',
+    actor: {
+      name: session.fullName,
+      email: session.email || '',
+      role: session.role,
+    },
+    previousValue: previousPriority,
+    newValue: priority,
+    timestamp,
+    details: `Priority manually changed from ${previousPriority} to ${priority}.`,
+  });
+
+  const updatedAudit = [auditEvent, ...currentAudit];
+
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+  ]);
+
+  return {
+    outcome: 'updated',
+    complaint,
+  };
+}
+
+/* -------------------------------------------------------
+   ADMIN DUPLICATE REVIEW
+------------------------------------------------------- */
+
+export type ReviewDuplicateResult =
+  | {
+      outcome: 'reviewed';
+      complaint: Complaint;
+      duplicate: Complaint;
+    }
+  | { outcome: 'unauthorized' }
+  | { outcome: 'not_found' }
+  | { outcome: 'no_duplicate' }
+  | { outcome: 'duplicate_not_found' }
+  | { outcome: 'unchanged' };
+
+/**
+ * Allow an administrator to confirm or reject a suspected duplicate.
+ *
+ * Both complaint records remain separate.
+ * No complaint is merged, deleted, or automatically closed.
+ */
+export function reviewDuplicate(
+  complaintId: string,
+  decision: Exclude<DuplicateReviewStatus, 'pending'>,
+  session: AuthSession | null,
+): ReviewDuplicateResult {
+  if (session?.role !== 'admin') {
+    return { outcome: 'unauthorized' };
+  }
+
+  const complaints = readComplaints().map((item) => ({
+    ...item,
+  }));
+
+  const complaint = complaints.find(
+    (item) => item.id === complaintId,
+  );
+
+  if (!complaint) {
+    return { outcome: 'not_found' };
+  }
+
+  if (!complaint.possibleDuplicateId) {
+    return { outcome: 'no_duplicate' };
+  }
+
+  const duplicate = complaints.find(
+    (item) => item.id === complaint.possibleDuplicateId,
+  );
+
+  if (!duplicate) {
+    return { outcome: 'duplicate_not_found' };
+  }
+
+  if (
+    complaint.duplicateReviewStatus === decision &&
+    duplicate.duplicateReviewStatus === decision
+  ) {
+    return { outcome: 'unchanged' };
+  }
+
+  const timestamp = new Date().toISOString();
+
+  complaint.duplicateReviewStatus = decision;
+  complaint.duplicateReviewedBy = session.fullName;
+  complaint.duplicateReviewedAt = timestamp;
+  complaint.updatedAt = timestamp;
+
+  duplicate.duplicateReviewStatus = decision;
+  duplicate.duplicateReviewedBy = session.fullName;
+  duplicate.duplicateReviewedAt = timestamp;
+  duplicate.updatedAt = timestamp;
+
+  const updates = [...readUpdates()];
+
+  const decisionMessage =
+    decision === 'confirmed'
+      ? `Admin confirmed that ${complaint.id} and ${duplicate.id} are possible duplicate complaints. Both complaint records have been retained.`
+      : `Admin reviewed ${complaint.id} and ${duplicate.id} and marked them as separate complaints. Both complaint records have been retained.`;
+
+  const update: ComplaintUpdate = {
+    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
+    complaintId,
+    status: complaint.status,
+    message: decisionMessage,
+    author: session.fullName,
+    timestamp,
+  };
+
+  updates.push(update);
+
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+  ]);
+
+  return {
+    outcome: 'reviewed',
+    complaint,
+    duplicate,
+  };
+}
+
+/* -------------------------------------------------------
+   COMPLAINT STATUS UPDATES
+------------------------------------------------------- */
+
 export type UpdateComplaintStatusResult =
   | { outcome: 'updated'; update: ComplaintUpdate }
   | { outcome: 'unchanged' }
@@ -487,7 +706,9 @@ export function updateComplaintStatus(
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = [...readComplaints()].map((item) => ({ ...item }));
+  const complaints = [...readComplaints()].map((item) => ({
+    ...item,
+  }));
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
@@ -502,7 +723,6 @@ export function updateComplaintStatus(
   }
 
   const timestamp = new Date().toISOString();
-
   const updates = [...readUpdates()];
 
   const update: ComplaintUpdate = {
@@ -515,22 +735,36 @@ export function updateComplaintStatus(
   };
 
   const previousStatus = complaint.status;
+
   complaint.status = status;
   complaint.updatedAt = timestamp;
 
   updates.push(update);
+
   const isResolution = status === 'resolved';
   const notifications = [...readNotifications()];
   const notificationId = `NOT-${update.id}`;
-  if (!notifications.some((item) => item.id === notificationId)) notifications.push({
-    id: notificationId, complaintId, type: isResolution ? 'resolution' : 'status_update',
-    title: isResolution ? 'Complaint resolved' : `Status update on ${complaintId}`,
-    message: isResolution
-      ? `Your complaint ${complaintId} has been marked as resolved.`
-      : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
-    read: false, timestamp: update.timestamp,
-  });
+
+  if (
+    !notifications.some((item) => item.id === notificationId)
+  ) {
+    notifications.push({
+      id: notificationId,
+      complaintId,
+      type: isResolution ? 'resolution' : 'status_update',
+      title: isResolution
+        ? 'Complaint resolved'
+        : `Status update on ${complaintId}`,
+      message: isResolution
+        ? `Your complaint ${complaintId} has been marked as resolved.`
+        : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
+      read: false,
+      timestamp: update.timestamp,
+    });
+  }
+
   const currentAudit = getAdminAuditEvents();
+
   const auditEvent = createAuditEvent({
     complaintId,
     action: 'STATUS_CHANGED',
@@ -544,6 +778,7 @@ export function updateComplaintStatus(
     timestamp,
     details: `Status changed from ${statusLabels[previousStatus] ?? previousStatus} to ${statusLabels[status] ?? status}`,
   });
+
   const updatedAudit = [auditEvent, ...currentAudit];
 
   saveStorageBatch([
@@ -553,8 +788,15 @@ export function updateComplaintStatus(
     [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
   ]);
 
-  return { outcome: 'updated', update };
+  return {
+    outcome: 'updated',
+    update,
+  };
 }
+
+/* -------------------------------------------------------
+   ADMIN ESCALATION REVIEW
+------------------------------------------------------- */
 
 export type ReviewEscalationResult =
   | { outcome: 'reviewed'; update: ComplaintUpdate }
@@ -574,8 +816,13 @@ export function reviewComplaintEscalation(
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = [...readComplaints()].map((item) => ({ ...item }));
-  const complaint = complaints.find((item) => item.id === complaintId);
+  const complaints = [...readComplaints()].map((item) => ({
+    ...item,
+  }));
+
+  const complaint = complaints.find(
+    (item) => item.id === complaintId,
+  );
 
   if (!complaint) {
     return { outcome: 'not_found' };
@@ -601,6 +848,7 @@ export function reviewComplaintEscalation(
   updates.push(update);
 
   const currentAudit = getAdminAuditEvents();
+
   const auditEvent = createAuditEvent({
     complaintId,
     action: 'ESCALATION_REVIEWED',
@@ -614,6 +862,7 @@ export function reviewComplaintEscalation(
     timestamp,
     details: actionNote.trim(),
   });
+
   const updatedAudit = [auditEvent, ...currentAudit];
 
   saveStorageBatch([
@@ -622,8 +871,15 @@ export function reviewComplaintEscalation(
     [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
   ]);
 
-  return { outcome: 'reviewed', update };
+  return {
+    outcome: 'reviewed',
+    update,
+  };
 }
+
+/* -------------------------------------------------------
+   USER COMPLAINT ESCALATION
+------------------------------------------------------- */
 
 export type SubmitEscalationResult =
   | { outcome: 'submitted'; update: ComplaintUpdate }
@@ -644,7 +900,9 @@ export function submitComplaintEscalation(
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = [...readComplaints()].map((item) => ({ ...item }));
+  const complaints = [...readComplaints()].map((item) => ({
+    ...item,
+  }));
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
@@ -673,7 +931,6 @@ export function submitComplaintEscalation(
   }
 
   const timestamp = new Date().toISOString();
-
   const updates = [...readUpdates()];
 
   const update: ComplaintUpdate = {
@@ -689,14 +946,32 @@ export function submitComplaintEscalation(
   complaint.updatedAt = timestamp;
 
   updates.push(update);
+
   const notifications = [...readNotifications()];
   const notificationId = `NOT-${update.id}`;
-  if (!notifications.some((item) => item.id === notificationId)) notifications.push({
-    id: notificationId, complaintId, type: 'escalation', title: 'Complaint escalated',
-    message: `Your escalation for ${complaintId} was submitted: ${trimmedReason}`,
-    read: false, timestamp,
-  });
-  saveStorageBatch([[STORAGE_KEY, complaints], [UPDATES_STORAGE_KEY, updates], [NOTIFICATIONS_STORAGE_KEY, notifications]]);
 
-  return { outcome: 'submitted', update };
+  if (
+    !notifications.some((item) => item.id === notificationId)
+  ) {
+    notifications.push({
+      id: notificationId,
+      complaintId,
+      type: 'escalation',
+      title: 'Complaint escalated',
+      message: `Your escalation for ${complaintId} was submitted: ${trimmedReason}`,
+      read: false,
+      timestamp,
+    });
+  }
+
+  saveStorageBatch([
+    [STORAGE_KEY, complaints],
+    [UPDATES_STORAGE_KEY, updates],
+    [NOTIFICATIONS_STORAGE_KEY, notifications],
+  ]);
+
+  return {
+    outcome: 'submitted',
+    update,
+  };
 }

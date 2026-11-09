@@ -19,6 +19,11 @@ export type ComplaintCategory =
   | 'harassment'
   | 'other';
 
+export type DuplicateReviewStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'not_duplicate';
+
 export interface Complaint {
   id: string;
   subject: string;
@@ -28,10 +33,17 @@ export interface Complaint {
   priority: ComplaintPriority;
   submittedBy: string;
   assignedTo: string | null;
-  submittedAt: string; // ISO date
-  updatedAt: string; // ISO date
+  submittedAt: string;
+  updatedAt: string;
   isEscalated: boolean;
+
+  // ID of the most likely matching complaint, if one was detected.
   possibleDuplicateId: string | null;
+
+  // Admin review information for a suspected duplicate.
+  duplicateReviewStatus?: DuplicateReviewStatus;
+  duplicateReviewedBy?: string;
+  duplicateReviewedAt?: string;
 }
 
 export interface ComplaintUpdate {
@@ -40,10 +52,14 @@ export interface ComplaintUpdate {
   status: ComplaintStatus;
   message: string;
   author: string;
-  timestamp: string; // ISO date
+  timestamp: string;
 }
 
-export type NotificationType = 'status_update' | 'assignment' | 'escalation' | 'resolution';
+export type NotificationType =
+  | 'status_update'
+  | 'assignment'
+  | 'escalation'
+  | 'resolution';
 
 export interface AppNotification {
   id: string;
@@ -52,7 +68,7 @@ export interface AppNotification {
   title: string;
   message: string;
   read: boolean;
-  timestamp: string; // ISO date
+  timestamp: string;
 }
 
 export type UserRole = 'user' | 'admin';

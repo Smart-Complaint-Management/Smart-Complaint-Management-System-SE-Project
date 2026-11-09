@@ -9,9 +9,27 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/pages/auth/authContext';
 import { categoryLabels } from '@/data/mockData';
 import { formatDateTime } from '@/services/api';
-import { getComplaintUpdates, getComplaints, submitComplaintEscalation, updateComplaintStatus } from '@/services/complaintService';
-import type { ComplaintStatus } from '@/types';
-import { getComplaintStatus, patchComplaintStatus } from '@/services/authApi';
+
+import {
+  getComplaintUpdates,
+  getComplaints,
+  submitComplaintEscalation,
+  updateComplaintStatus,
+  updateComplaintPriority,
+  getPriorityLevels,
+  reviewDuplicate,
+} from '@/services/complaintService';
+
+import type {
+  ComplaintPriority,
+  ComplaintStatus,
+  DuplicateReviewStatus,
+} from '@/types';
+
+import {
+  getComplaintStatus,
+  patchComplaintStatus,
+} from '@/services/authApi';
 
 export function ComplaintDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,52 +41,131 @@ export function ComplaintDetailPage() {
     () => getComplaints().find((c) => c.id === id),
     [id],
   );
-  const complaint = foundComplaint &&
-    (isAdmin || (session && foundComplaint.submittedBy === session.fullName))
-    ? foundComplaint
-    : undefined;
+
+  const complaint =
+    foundComplaint &&
+    (isAdmin ||
+      (session &&
+        foundComplaint.submittedBy === session.fullName))
+      ? foundComplaint
+      : undefined;
+
   const [updates, setUpdates] = useState(() =>
-    getComplaintUpdates().filter((update) => update.complaintId === id),
+    getComplaintUpdates().filter(
+      (update) => update.complaintId === id,
+    ),
   );
 
-  const [showEscalationForm, setShowEscalationForm] = useState(false);
+  const [showEscalationForm, setShowEscalationForm] =
+    useState(false);
+
   const [escalationReason, setEscalationReason] = useState('');
-  const [escalationSubmitted, setEscalationSubmitted] = useState(false);
-  const [isSubmittingEscalation, setIsSubmittingEscalation] = useState(false);
+  const [escalationSubmitted, setEscalationSubmitted] =
+    useState(false);
+
+  const [isSubmittingEscalation, setIsSubmittingEscalation] =
+    useState(false);
+
   const [escalationError, setEscalationError] = useState('');
+
   const escalationSubmissionLock = useRef(false);
   const statusSubmissionLock = useRef(false);
-  const [pendingStatus, setPendingStatus] = useState<ComplaintStatus | null>(null);
+  const prioritySubmissionLock = useRef(false);
+
+  const [pendingStatus, setPendingStatus] =
+    useState<ComplaintStatus | null>(null);
+
   const [statusMessage, setStatusMessage] = useState('');
-  const [displayedStatus, setDisplayedStatus] = useState<ComplaintStatus>(foundComplaint?.status ?? 'submitted');
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  const [displayedStatus, setDisplayedStatus] =
+    useState<ComplaintStatus>(
+      foundComplaint?.status ?? 'submitted',
+    );
+
+  const [isUpdatingStatus, setIsUpdatingStatus] =
+    useState(false);
+
   const [statusLoadRetry, setStatusLoadRetry] = useState(0);
   const [statusLoadFailed, setStatusLoadFailed] = useState(false);
 
+  // Priority override state
+  const [displayedPriority, setDisplayedPriority] =
+    useState<ComplaintPriority>(
+      foundComplaint?.priority ?? 'low',
+    );
+
+  const [pendingPriority, setPendingPriority] =
+    useState<ComplaintPriority | null>(null);
+
+  const [priorityMessage, setPriorityMessage] = useState('');
+  const [isUpdatingPriority, setIsUpdatingPriority] =
+    useState(false);
+
+  // Duplicate review state
+  const [duplicateReviewStatus, setDuplicateReviewStatus] =
+    useState<DuplicateReviewStatus>(
+      foundComplaint?.duplicateReviewStatus ?? 'pending',
+    );
+  const [duplicateReviewMessage, setDuplicateReviewMessage] =
+    useState('');
+  const [isReviewingDuplicate, setIsReviewingDuplicate] =
+    useState(false);
+
   useEffect(() => {
     let active = true;
+
     setPendingStatus(null);
     setStatusMessage('');
     setStatusLoadFailed(false);
-    setDisplayedStatus(foundComplaint?.status ?? 'submitted');
-    setUpdates(getComplaintUpdates().filter((update) => update.complaintId === id));
 
-    if (import.meta.env.VITE_USE_REAL_API === 'true' && id && /^\d+$/.test(id)) {
+    setDisplayedStatus(
+      foundComplaint?.status ?? 'submitted',
+    );
+
+    setDisplayedPriority(
+      foundComplaint?.priority ?? 'low',
+    );
+
+    setPendingPriority(null);
+    setPriorityMessage('');
+    setDuplicateReviewStatus(foundComplaint?.duplicateReviewStatus ?? 'pending');
+    setDuplicateReviewMessage('');
+
+    setUpdates(
+      getComplaintUpdates().filter(
+        (update) => update.complaintId === id,
+      ),
+    );
+
+    if (
+      import.meta.env.VITE_USE_REAL_API === 'true' &&
+      id &&
+      /^\d+$/.test(id)
+    ) {
       getComplaintStatus(id)
         .then((result) => {
           if (!active) return;
+
           setDisplayedStatus(result.status);
           setUpdates(result.updates);
         })
         .catch((error: unknown) => {
           if (!active) return;
+
           const status = (error as { status?: number }).status;
+
           if (status === 401) {
             logout();
             navigate('/login', { replace: true });
             return;
           }
-          setStatusMessage(error instanceof Error ? error.message : 'Could not load complaint status history.');
+
+          setStatusMessage(
+            error instanceof Error
+              ? error.message
+              : 'Could not load complaint status history.',
+          );
+
           setStatusLoadFailed(true);
         });
     }
@@ -76,7 +173,14 @@ export function ComplaintDetailPage() {
     return () => {
       active = false;
     };
-  }, [id, foundComplaint?.status, logout, navigate, statusLoadRetry]);
+  }, [
+    id,
+    foundComplaint?.status,
+    foundComplaint?.priority,
+    logout,
+    navigate,
+    statusLoadRetry,
+  ]);
 
   if (!complaint) {
     return (
@@ -87,10 +191,17 @@ export function ComplaintDetailPage() {
           description="This complaint may have been removed or the ID is incorrect."
           action={
             <button
-              onClick={() => navigate(isAdmin ? '/admin/complaints' : '/complaints')}
+              onClick={() =>
+                navigate(
+                  isAdmin
+                    ? '/admin/complaints'
+                    : '/complaints',
+                )
+              }
               className="btn btn-secondary"
             >
-              <ArrowLeft className="h-4 w-4" /> Back to Complaints
+              <ArrowLeft className="h-4 w-4" />
+              Back to Complaints
             </button>
           }
         />
@@ -98,11 +209,20 @@ export function ComplaintDetailPage() {
     );
   }
 
-  const canEscalate = !isAdmin && !complaint.isEscalated && displayedStatus !== 'resolved' && displayedStatus !== 'rejected';
+  const canEscalate =
+    !isAdmin &&
+    !complaint.isEscalated &&
+    displayedStatus !== 'resolved' &&
+    displayedStatus !== 'rejected';
 
-  const handleEscalationSubmit = async (e: React.FormEvent) => {
+  // Submit escalation
+  const handleEscalationSubmit = async (
+    e: React.FormEvent,
+  ) => {
     e.preventDefault();
+
     if (escalationSubmissionLock.current) return;
+
     if (!id) {
       setEscalationError('Complaint not found.');
       return;
@@ -111,92 +231,317 @@ export function ComplaintDetailPage() {
     escalationSubmissionLock.current = true;
     setIsSubmittingEscalation(true);
     setEscalationError('');
+
     try {
-      const result = await Promise.resolve().then(() => submitComplaintEscalation(id, escalationReason, session));
+      const result = await Promise.resolve().then(() =>
+        submitComplaintEscalation(
+          id,
+          escalationReason,
+          session,
+        ),
+      );
+
       if (result.outcome === 'submitted') {
         setEscalationSubmitted(true);
       } else if (result.outcome === 'invalid_reason') {
-        setEscalationError('Please provide a reason for escalation.');
+        setEscalationError(
+          'Please provide a reason for escalation.',
+        );
       } else if (result.outcome === 'unauthorized') {
-        setEscalationError('Access denied. You can only escalate your own complaint.');
+        setEscalationError(
+          'Access denied. You can only escalate your own complaint.',
+        );
       } else if (result.outcome === 'not_found') {
         setEscalationError('Complaint not found.');
       } else {
-        setEscalationError('This complaint has already been escalated or is no longer eligible.');
+        setEscalationError(
+          'This complaint has already been escalated or is no longer eligible.',
+        );
       }
     } catch (error) {
-      setEscalationError(error instanceof Error ? error.message : 'Could not save your escalation. Please try again.');
+      setEscalationError(
+        error instanceof Error
+          ? error.message
+          : 'Could not save your escalation. Please try again.',
+      );
     } finally {
       escalationSubmissionLock.current = false;
       setIsSubmittingEscalation(false);
     }
   };
 
+  // Update complaint status
   const handleStatusUpdate = async () => {
-    if (statusSubmissionLock.current || isUpdatingStatus) return;
-    if (session?.role !== 'admin') {
-      setStatusMessage('Access denied. Only administrators can update complaint status.');
+    if (
+      statusSubmissionLock.current ||
+      isUpdatingStatus
+    ) {
       return;
     }
+
+    if (session?.role !== 'admin') {
+      setStatusMessage(
+        'Access denied. Only administrators can update complaint status.',
+      );
+      return;
+    }
+
     if (!id || !pendingStatus) return;
 
     statusSubmissionLock.current = true;
     setIsUpdatingStatus(true);
+
     try {
       if (!/^\d+$/.test(id)) {
-        const result = updateComplaintStatus(id, pendingStatus, session.fullName, session);
+        const result = updateComplaintStatus(
+          id,
+          pendingStatus,
+          session.fullName,
+          session,
+        );
+
         if (result.outcome === 'unauthorized') {
-          setStatusMessage('Access denied. Only administrators can update complaint status.');
+          setStatusMessage(
+            'Access denied. Only administrators can update complaint status.',
+          );
           return;
         }
+
         if (result.outcome === 'not_found') {
           setStatusMessage('Complaint not found.');
           return;
         }
+
         if (result.outcome === 'unchanged') {
           setPendingStatus(null);
-          setStatusMessage('Complaint status is already up to date.');
+          setStatusMessage(
+            'Complaint status is already up to date.',
+          );
           return;
         }
+
         setDisplayedStatus(result.update.status);
-        setUpdates((current) => [...current, result.update]);
+
+        setUpdates((current) => [
+          ...current,
+          result.update,
+        ]);
+
         setPendingStatus(null);
-        setStatusMessage(result.update.status === 'resolved'
-          ? 'Complaint resolved and case closed in browser storage only; it is not saved to MySQL.'
-          : 'Demo status updated in browser storage only; it is not saved to MySQL.');
+
+        setStatusMessage(
+          result.update.status === 'resolved'
+            ? 'Complaint resolved and case closed in browser storage only; it is not saved to MySQL.'
+            : 'Demo status updated in browser storage only; it is not saved to MySQL.',
+        );
+
         return;
       }
 
-      const result = await patchComplaintStatus(id, pendingStatus);
+      const result = await patchComplaintStatus(
+        id,
+        pendingStatus,
+      );
+
       setDisplayedStatus(result.status);
       setPendingStatus(null);
+
       if (result.changed && result.update) {
-        setUpdates((current) => current.some((update) => update.id === result.update?.id)
-          ? current
-          : [...current, result.update!]);
+        setUpdates((current) =>
+          current.some(
+            (update) =>
+              update.id === result.update?.id,
+          )
+            ? current
+            : [...current, result.update!],
+        );
       }
-      setStatusMessage(result.changed
-        ? result.status === 'resolved' ? 'Complaint resolved and case closed.' : 'Complaint status updated.'
-        : 'Complaint status is already up to date.');
+
+      setStatusMessage(
+        result.changed
+          ? result.status === 'resolved'
+            ? 'Complaint resolved and case closed.'
+            : 'Complaint status updated.'
+          : 'Complaint status is already up to date.',
+      );
     } catch (error) {
       const status = (error as { status?: number }).status;
+
       if (status === 401) {
         logout();
         navigate('/login', { replace: true });
         return;
       }
-      setStatusMessage(status === 401 ? 'Your session expired. Please log in again.' : status === 403 ? 'Access denied. Only administrators can update complaint status.' : error instanceof Error ? error.message : 'Could not update complaint status.');
+
+      setStatusMessage(
+        status === 403
+          ? 'Access denied. Only administrators can update complaint status.'
+          : error instanceof Error
+            ? error.message
+            : 'Could not update complaint status.',
+      );
     } finally {
       statusSubmissionLock.current = false;
       setIsUpdatingStatus(false);
     }
   };
 
+  // Update complaint priority
+  const handlePriorityUpdate = async () => {
+    if (
+      prioritySubmissionLock.current ||
+      isUpdatingPriority
+    ) {
+      return;
+    }
+
+    if (session?.role !== 'admin') {
+      setPriorityMessage(
+        'Access denied. Only administrators can change priority.',
+      );
+      return;
+    }
+
+    if (!id || !pendingPriority) return;
+
+    // Backend priority update API is not available yet.
+    if (/^\d+$/.test(id)) {
+      setPriorityMessage(
+        'Priority override is currently available for demo complaints only. Backend API support is required for database complaints.',
+      );
+      return;
+    }
+
+    prioritySubmissionLock.current = true;
+    setIsUpdatingPriority(true);
+    setPriorityMessage('');
+
+    try {
+      const result = updateComplaintPriority(
+        id,
+        pendingPriority,
+        session,
+      );
+
+      if (result.outcome === 'unauthorized') {
+        setPriorityMessage(
+          'Access denied. Only administrators can change priority.',
+        );
+        return;
+      }
+
+      if (result.outcome === 'not_found') {
+        setPriorityMessage('Complaint not found.');
+        return;
+      }
+
+      if (result.outcome === 'unchanged') {
+        setPendingPriority(null);
+        setPriorityMessage(
+          'Complaint priority is already up to date.',
+        );
+        return;
+      }
+
+      if (result.outcome === 'invalid_priority') {
+        setPriorityMessage(
+          'Please select a valid priority level.',
+        );
+        return;
+      }
+
+      setDisplayedPriority(result.complaint.priority);
+      setPendingPriority(null);
+
+      setPriorityMessage(
+        `Priority successfully changed to ${result.complaint.priority}. The change has been recorded in the admin audit log.`,
+      );
+    } catch (error) {
+      setPriorityMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not update complaint priority.',
+      );
+    } finally {
+      prioritySubmissionLock.current = false;
+      setIsUpdatingPriority(false);
+    }
+  };
+
+  // Admin decision for a suspected duplicate pair
+  const handleDuplicateReview = async (
+    decision: 'confirmed' | 'not_duplicate',
+  ) => {
+    if (isReviewingDuplicate) return;
+
+    if (session?.role !== 'admin') {
+      setDuplicateReviewMessage(
+        'Access denied. Only administrators can review possible duplicates.',
+      );
+      return;
+    }
+
+    if (!id || !complaint.possibleDuplicateId) {
+      setDuplicateReviewMessage('No linked complaint is available to review.');
+      return;
+    }
+
+    if (/^\\d+$/.test(id)) {
+      setDuplicateReviewMessage(
+        'Duplicate review is currently available for demo complaints only. Backend API support is required for database complaints.',
+      );
+      return;
+    }
+
+    setIsReviewingDuplicate(true);
+    setDuplicateReviewMessage('');
+
+    try {
+      const result = reviewDuplicate(id, decision, session);
+
+      if (result.outcome === 'unauthorized') {
+        setDuplicateReviewMessage(
+          'Access denied. Only administrators can review possible duplicates.',
+        );
+        return;
+      }
+
+      if (result.outcome === 'not_found') {
+        setDuplicateReviewMessage(
+          'The complaint or its linked complaint could not be found.',
+        );
+        return;
+      }
+
+      if (result.outcome === 'reviewed') {
+        setDuplicateReviewStatus(decision);
+        setDuplicateReviewMessage(
+          decision === 'confirmed'
+            ? 'Duplicate confirmed. Both complaints remain separate records.'
+            : 'Marked as not a duplicate. Both complaints remain separate records.',
+        );
+      }
+    } catch (error) {
+      setDuplicateReviewMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not save the duplicate review. Please try again.',
+      );
+    } finally {
+      setIsReviewingDuplicate(false);
+    }
+  };
+
   return (
     <div>
-      {/* Back link */}
       <button
-        onClick={() => navigate(isAdmin ? '/admin/complaints' : '/complaints')}
+        onClick={() =>
+          navigate(
+            isAdmin
+              ? '/admin/complaints'
+              : '/complaints',
+          )
+        }
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-800"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -206,95 +551,159 @@ export function ComplaintDetailPage() {
       <PageHeader
         title={complaint.subject}
         description={
-          <span className="font-mono text-sm text-ink-400">{complaint.id}</span>
+          <span className="font-mono text-sm text-ink-400">
+            {complaint.id}
+          </span>
         }
         actions={
           <div className="flex items-center gap-2">
             <StatusBadge status={displayedStatus} />
-            <PriorityBadge priority={complaint.priority} />
+            <PriorityBadge priority={displayedPriority} />
           </div>
         }
       />
 
       {statusMessage && (
         <p
-          role={statusMessage.startsWith('Access denied.') ? 'alert' : 'status'}
-          className={`mb-4 text-sm ${statusMessage.startsWith('Access denied.') ? 'text-rose-600' : 'text-ink-500'}`}
+          role={
+            statusMessage.startsWith('Access denied.')
+              ? 'alert'
+              : 'status'
+          }
+          className={`mb-4 text-sm ${
+            statusMessage.startsWith('Access denied.')
+              ? 'text-rose-600'
+              : 'text-ink-500'
+          }`}
         >
           {statusMessage}
         </p>
       )}
+
       {statusLoadFailed && (
-        <button type="button" className="btn btn-secondary mb-4" onClick={() => setStatusLoadRetry((key) => key + 1)}>Retry loading status history</button>
+        <button
+          type="button"
+          className="btn btn-secondary mb-4"
+          onClick={() =>
+            setStatusLoadRetry((key) => key + 1)
+          }
+        >
+          Retry loading status history
+        </button>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Main column */}
         <div className="space-y-6 lg:col-span-2">
-          {/* Description */}
           <div className="card p-6">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-400">Description</h2>
-            <p className="text-sm leading-relaxed text-ink-700">{complaint.description}</p>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-400">
+              Description
+            </h2>
+
+            <p className="text-sm leading-relaxed text-ink-700">
+              {complaint.description}
+            </p>
           </div>
 
-          {/* Timeline */}
           <div className="card p-6">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-400">
               Status & Progress Timeline
             </h2>
+
             <ComplaintTimeline updates={updates} />
           </div>
         </div>
 
-        {/* Sidebar column */}
         <div className="space-y-4">
-          {/* Details card */}
           <div className="card p-6">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-400">Details</h2>
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-400">
+              Details
+            </h2>
+
             <dl className="space-y-3">
               <div>
-                <dt className="text-xs font-medium text-ink-400">Category</dt>
-                <dd className="mt-0.5 text-sm text-ink-700">{categoryLabels[complaint.category]}</dd>
+                <dt className="text-xs font-medium text-ink-400">
+                  Category
+                </dt>
+                <dd className="mt-0.5 text-sm text-ink-700">
+                  {categoryLabels[complaint.category]}
+                </dd>
               </div>
+
               <div>
-                <dt className="text-xs font-medium text-ink-400">Priority</dt>
-                <dd className="mt-0.5"><PriorityBadge priority={complaint.priority} /></dd>
+                <dt className="text-xs font-medium text-ink-400">
+                  Priority
+                </dt>
+                <dd className="mt-0.5">
+                  <PriorityBadge priority={displayedPriority} />
+                </dd>
               </div>
+
               <div>
-                <dt className="text-xs font-medium text-ink-400">Submitted By</dt>
-                <dd className="mt-0.5 text-sm text-ink-700">{complaint.submittedBy}</dd>
+                <dt className="text-xs font-medium text-ink-400">
+                  Submitted By
+                </dt>
+                <dd className="mt-0.5 text-sm text-ink-700">
+                  {complaint.submittedBy}
+                </dd>
               </div>
+
               <div>
-                <dt className="text-xs font-medium text-ink-400">Assigned To</dt>
-                <dd className="mt-0.5 text-sm text-ink-700">{complaint.assignedTo ?? '— Unassigned'}</dd>
+                <dt className="text-xs font-medium text-ink-400">
+                  Assigned To
+                </dt>
+                <dd className="mt-0.5 text-sm text-ink-700">
+                  {complaint.assignedTo ?? '— Unassigned'}
+                </dd>
               </div>
+
               <div>
-                <dt className="text-xs font-medium text-ink-400">Submitted</dt>
-                <dd className="mt-0.5 text-sm text-ink-700">{formatDateTime(complaint.submittedAt)}</dd>
+                <dt className="text-xs font-medium text-ink-400">
+                  Submitted
+                </dt>
+                <dd className="mt-0.5 text-sm text-ink-700">
+                  {formatDateTime(complaint.submittedAt)}
+                </dd>
               </div>
+
               <div>
-                <dt className="text-xs font-medium text-ink-400">Last Updated</dt>
-                <dd className="mt-0.5 text-sm text-ink-700">{formatDateTime(complaint.updatedAt)}</dd>
+                <dt className="text-xs font-medium text-ink-400">
+                  Last Updated
+                </dt>
+                <dd className="mt-0.5 text-sm text-ink-700">
+                  {formatDateTime(complaint.updatedAt)}
+                </dd>
               </div>
             </dl>
           </div>
 
-          {/* Admin-only: management controls */}
+          {/* Administrator management */}
           {isAdmin && (
             <div className="card p-6">
-              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-400">Management</h2>
-              <div className="space-y-3">
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-400">
+                Management
+              </h2>
+
+              <div className="space-y-5">
+                {/* Status management */}
                 <div>
-                  <label className="text-xs font-medium text-ink-400">Update Status</label>
+                  <label className="text-xs font-medium text-ink-400">
+                    Update Status
+                  </label>
+
                   <select
                     className="input mt-1"
                     value={pendingStatus ?? displayedStatus}
                     onChange={(event) => {
-                      setPendingStatus(event.target.value as ComplaintStatus);
+                      setPendingStatus(
+                        event.target.value as ComplaintStatus,
+                      );
                       setStatusMessage('');
                     }}
                     aria-label="Update status"
-                    disabled={isUpdatingStatus || displayedStatus === 'resolved'}
+                    disabled={
+                      isUpdatingStatus ||
+                      displayedStatus === 'resolved'
+                    }
                   >
                     <option value="submitted">Submitted</option>
                     <option value="under_review">Under Review</option>
@@ -302,115 +711,333 @@ export function ComplaintDetailPage() {
                     <option value="resolved">Resolved and closed</option>
                     <option value="rejected">Rejected</option>
                   </select>
+
                   <button
                     type="button"
                     className="btn btn-primary mt-2 w-full"
                     onClick={handleStatusUpdate}
-                    disabled={isUpdatingStatus || displayedStatus === 'resolved' || !pendingStatus || pendingStatus === displayedStatus}
+                    disabled={
+                      isUpdatingStatus ||
+                      displayedStatus === 'resolved' ||
+                      !pendingStatus ||
+                      pendingStatus === displayedStatus
+                    }
                   >
-                    {isUpdatingStatus ? 'Updating...' : pendingStatus === 'resolved' ? 'Resolve and Close Case' : 'Save Status'}
+                    {isUpdatingStatus
+                      ? 'Updating...'
+                      : pendingStatus === 'resolved'
+                        ? 'Resolve and Close Case'
+                        : 'Save Status'}
                   </button>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-ink-400">Assign To</label>
-                  <select className="input mt-1" defaultValue={complaint.assignedTo ?? ''} aria-label="Assign to">
+
+                {/* Priority override */}
+                <div className="border-t border-ink-100 pt-4">
+                  <label
+                    htmlFor="priority-override"
+                    className="text-xs font-medium text-ink-400"
+                  >
+                    Override Complaint Priority
+                  </label>
+
+                  <select
+                    id="priority-override"
+                    className="input mt-1"
+                    value={
+                      pendingPriority ?? displayedPriority
+                    }
+                    onChange={(event) => {
+                      setPendingPriority(
+                        event.target.value as ComplaintPriority,
+                      );
+                      setPriorityMessage('');
+                    }}
+                    disabled={isUpdatingPriority}
+                  >
+                    {getPriorityLevels().map((priority) => (
+                      <option
+                        key={priority}
+                        value={priority}
+                      >
+                        {priority.charAt(0).toUpperCase() +
+                          priority.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    className="btn btn-primary mt-2 w-full"
+                    onClick={handlePriorityUpdate}
+                    disabled={
+                      isUpdatingPriority ||
+                      !pendingPriority ||
+                      pendingPriority === displayedPriority
+                    }
+                  >
+                    {isUpdatingPriority
+                      ? 'Updating Priority...'
+                      : 'Save Priority'}
+                  </button>
+
+                  {priorityMessage && (
+                    <p
+                      role="status"
+                      className="mt-2 text-xs text-ink-500"
+                    >
+                      {priorityMessage}
+                    </p>
+                  )}
+                </div>
+
+                {/* Assignment */}
+                <div className="border-t border-ink-100 pt-4">
+                  <label className="text-xs font-medium text-ink-400">
+                    Assign To
+                  </label>
+
+                  <select
+                    className="input mt-1"
+                    defaultValue={complaint.assignedTo ?? ''}
+                    aria-label="Assign to"
+                  >
                     <option value="">— Unassigned</option>
-                    <option value="IT Support Desk">IT Support Desk</option>
-                    <option value="Facilities Maintenance">Facilities Maintenance</option>
-                    <option value="Registrar Office">Registrar Office</option>
-                    <option value="Finance Office">Finance Office</option>
+                    <option value="IT Support Desk">
+                      IT Support Desk
+                    </option>
+                    <option value="Facilities Maintenance">
+                      Facilities Maintenance
+                    </option>
+                    <option value="Registrar Office">
+                      Registrar Office
+                    </option>
+                    <option value="Finance Office">
+                      Finance Office
+                    </option>
                   </select>
                 </div>
+
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Demo complaint status changes are stored in this browser only. Database complaints use the authenticated backend; assignment remains a UI affordance.
+                  Demo complaint status and priority changes
+                  are stored in this browser only. Database
+                  complaints require backend API support.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Duplicate indicator */}
+          {/* Duplicate indicator and administrative review */}
           {complaint.possibleDuplicateId && (
             <div className="card border-amber-200 bg-amber-50/50 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                <div>
-                  <p className="text-sm font-medium text-amber-800">Possible Duplicate Detected</p>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-amber-800">
+                    Possible Duplicate Detected
+                  </p>
+
                   <p className="mt-1 text-xs text-amber-700">
                     This complaint may be related to{' '}
-                    <a href={`/complaints/${complaint.possibleDuplicateId}`} className="font-medium underline">
+                    <a
+                      href={`/complaints/${complaint.possibleDuplicateId}`}
+                      className="font-medium underline"
+                    >
                       {complaint.possibleDuplicateId}
                     </a>
                     . Review both before proceeding.
                   </p>
+
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-ink-700">
+                      Duplicate review status:{' '}
+                      <span className="capitalize">
+                        {duplicateReviewStatus === 'pending'
+                          ? 'Pending review'
+                          : duplicateReviewStatus === 'confirmed'
+                            ? 'Confirmed duplicate'
+                            : 'Not a duplicate'}
+                      </span>
+                    </p>
+
+                    {complaint.duplicateReviewedBy && (
+                      <p className="mt-1 text-xs text-ink-500">
+                        Reviewed by {complaint.duplicateReviewedBy}
+                        {complaint.duplicateReviewedAt
+                          ? ` on ${formatDateTime(complaint.duplicateReviewedAt)}`
+                          : ''}
+                      </p>
+                    )}
+
+                    {isAdmin && duplicateReviewStatus === 'pending' && (
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <button
+                          type="button"
+                          className="btn btn-primary flex-1"
+                          onClick={() => handleDuplicateReview('confirmed')}
+                          disabled={isReviewingDuplicate}
+                        >
+                          {isReviewingDuplicate
+                            ? 'Saving review...'
+                            : 'Confirm Duplicate'}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary flex-1"
+                          onClick={() => handleDuplicateReview('not_duplicate')}
+                          disabled={isReviewingDuplicate}
+                        >
+                          Mark as Not Duplicate
+                        </button>
+                      </div>
+                    )}
+
+                    {duplicateReviewMessage && (
+                      <p
+                        role="status"
+                        className="mt-2 text-xs text-ink-600"
+                      >
+                        {duplicateReviewMessage}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Escalation */}
+          {/* Escalation indicator */}
           {complaint.isEscalated && (
             <div className="card border-rose-200 bg-rose-50/50 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+
                 <div>
-                  <p className="text-sm font-medium text-rose-800">Escalated</p>
+                  <p className="text-sm font-medium text-rose-800">
+                    Escalated
+                  </p>
+
                   <p className="mt-1 text-xs text-rose-700">
-                    This complaint has been escalated and is awaiting administrative review.
+                    This complaint has been escalated and is
+                    awaiting administrative review.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {!complaint.isEscalated && canEscalate && !showEscalationForm && (
-            <div className="card p-4">
-              <p className="mb-3 text-sm text-ink-500">
-                Not satisfied with the progress? You can request an escalation.
-              </p>
-              <button
-                onClick={() => setShowEscalationForm(true)}
-                className="btn btn-secondary w-full"
-              >
-                <AlertTriangle className="h-4 w-4" /> Request Escalation
-              </button>
-            </div>
-          )}
+          {!complaint.isEscalated &&
+            canEscalate &&
+            !showEscalationForm && (
+              <div className="card p-4">
+                <p className="mb-3 text-sm text-ink-500">
+                  Not satisfied with the progress? You can
+                  request an escalation.
+                </p>
 
-          {!complaint.isEscalated && canEscalate && showEscalationForm && !escalationSubmitted && (
-            <form onSubmit={handleEscalationSubmit} className="card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-ink-800">Request Escalation</h3>
-              <label htmlFor="escalation-reason" className="text-xs font-medium text-ink-400">Reason for escalation</label>
-              <textarea
-                id="escalation-reason"
-                value={escalationReason}
-                onChange={(e) => {
-                  setEscalationReason(e.target.value);
-                  setEscalationError('');
-                }}
-                placeholder="Explain why this complaint needs to be escalated..."
-                className="input mt-1 min-h-[80px] resize-y"
-                rows={3}
-                disabled={isSubmittingEscalation}
-                aria-invalid={escalationError ? true : undefined}
-                aria-describedby={escalationError ? "escalation-reason-error" : undefined}
-              />
-              {escalationError && <p id="escalation-reason-error" role="alert" className="mt-2 text-sm text-rose-600">{escalationError}</p>}
-              <div className="mt-3 flex gap-2">
-                <button type="submit" className="btn btn-primary flex-1" disabled={!escalationReason.trim() || isSubmittingEscalation}>
-                  <Send className="h-4 w-4" /> {isSubmittingEscalation ? 'Submitting…' : 'Submit Request'}
-                </button>
-                <button type="button" onClick={() => setShowEscalationForm(false)} className="btn btn-secondary" disabled={isSubmittingEscalation}>
-                  Cancel
+                <button
+                  onClick={() => setShowEscalationForm(true)}
+                  className="btn btn-secondary w-full"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  Request Escalation
                 </button>
               </div>
-            </form>
-          )}
+            )}
+
+          {!complaint.isEscalated &&
+            canEscalate &&
+            showEscalationForm &&
+            !escalationSubmitted && (
+              <form
+                onSubmit={handleEscalationSubmit}
+                className="card p-5"
+              >
+                <h3 className="mb-3 text-sm font-semibold text-ink-800">
+                  Request Escalation
+                </h3>
+
+                <label
+                  htmlFor="escalation-reason"
+                  className="text-xs font-medium text-ink-400"
+                >
+                  Reason for escalation
+                </label>
+
+                <textarea
+                  id="escalation-reason"
+                  value={escalationReason}
+                  onChange={(e) => {
+                    setEscalationReason(e.target.value);
+                    setEscalationError('');
+                  }}
+                  placeholder="Explain why this complaint needs to be escalated..."
+                  className="input mt-1 min-h-[80px] resize-y"
+                  rows={3}
+                  disabled={isSubmittingEscalation}
+                  aria-invalid={
+                    escalationError ? true : undefined
+                  }
+                  aria-describedby={
+                    escalationError
+                      ? 'escalation-reason-error'
+                      : undefined
+                  }
+                />
+
+                {escalationError && (
+                  <p
+                    id="escalation-reason-error"
+                    role="alert"
+                    className="mt-2 text-sm text-rose-600"
+                  >
+                    {escalationError}
+                  </p>
+                )}
+
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="submit"
+                    className="btn btn-primary flex-1"
+                    disabled={
+                      !escalationReason.trim() ||
+                      isSubmittingEscalation
+                    }
+                  >
+                    <Send className="h-4 w-4" />
+                    {isSubmittingEscalation
+                      ? 'Submitting…'
+                      : 'Submit Request'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowEscalationForm(false)
+                    }
+                    className="btn btn-secondary"
+                    disabled={isSubmittingEscalation}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
 
           {escalationSubmitted && (
-            <div role="status" className="card border-emerald-200 bg-emerald-50/50 p-4">
-              <p className="text-sm font-medium text-emerald-800">Escalation request submitted</p>
+            <div
+              role="status"
+              className="card border-emerald-200 bg-emerald-50/50 p-4"
+            >
+              <p className="text-sm font-medium text-emerald-800">
+                Escalation request submitted
+              </p>
+
               <p className="mt-1 text-xs text-emerald-700">
-                Your request has been recorded in this session's mock data. An administrator can review it.
+                Your request has been recorded in this
+                session's mock data. An administrator can
+                review it.
               </p>
             </div>
           )}
