@@ -37,7 +37,7 @@ export const COMPLAINT_CSV_COLUMNS: CsvColumn<Complaint>[] = [
   { label: 'Description', getValue: (c) => c.description },
   {
     label: 'Category',
-    getValue: (c) => categoryLabels[c.category] || c.category || 'Other',
+    getValue: (c) => categoryLabels[c.category ?? ''] || c.category || 'Uncategorized',
   },
   {
     label: 'Status',

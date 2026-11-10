@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileSearch } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -17,8 +17,9 @@ import {
   priorityLabels,
 } from '@/data/mockData';
 
-import { getComplaints } from '@/services/complaintService';
+import { loadComplaints, USE_REAL_API } from '@/services/api';
 import type { Complaint } from '@/types';
+import { useAuth } from '@/pages/auth/authContext';
 
 const categoryOptions: FilterOption[] = [
   { value: 'all', label: 'All Categories' },
@@ -57,6 +58,10 @@ const duplicateOptions: FilterOption[] = [
 ];
 
 export function AdminAllComplaintsPage() {
+  const { session } = useAuth();
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -64,7 +69,17 @@ export function AdminAllComplaintsPage() {
   const [assignmentFilter, setAssignmentFilter] = useState('all');
   const [duplicateFilter, setDuplicateFilter] = useState('all');
 
-  const complaints: Complaint[] = getComplaints();
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError('');
+    loadComplaints(session).then((items) => {
+      if (active) setComplaints(items);
+    }).catch((error: unknown) => {
+      if (active) setLoadError(error instanceof Error ? error.message : 'Could not load complaints.');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [session]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -76,8 +91,8 @@ export function AdminAllComplaintsPage() {
         complaint.description,
         complaint.submittedBy,
         complaint.assignedTo ?? '',
-        complaint.category,
-        categoryLabels[complaint.category] ?? '',
+        complaint.category ?? '',
+        categoryLabels[complaint.category ?? ''] ?? '',
         complaint.status,
         statusLabels[complaint.status] ?? '',
         complaint.priority,
@@ -106,16 +121,16 @@ export function AdminAllComplaintsPage() {
       const matchesAssignment =
         assignmentFilter === 'all' ||
         (assignmentFilter === 'assigned' &&
-          complaint.assignedTo !== null) ||
+        Boolean(complaint.assignedTo)) ||
         (assignmentFilter === 'unassigned' &&
-          complaint.assignedTo === null);
+          !complaint.assignedTo);
 
       const matchesDuplicate =
         duplicateFilter === 'all' ||
         (duplicateFilter === 'yes' &&
-          complaint.possibleDuplicateId !== null) ||
+          Boolean(complaint.possibleDuplicateId)) ||
         (duplicateFilter === 'no' &&
-          complaint.possibleDuplicateId === null);
+          !complaint.possibleDuplicateId);
 
       return (
         matchesSearch &&
@@ -154,7 +169,7 @@ export function AdminAllComplaintsPage() {
   }
 
   const duplicateCount = complaints.filter(
-    (complaint) => complaint.possibleDuplicateId !== null,
+    (complaint) => Boolean(complaint.possibleDuplicateId),
   ).length;
 
   return (
@@ -164,7 +179,10 @@ export function AdminAllComplaintsPage() {
         description="Search, filter, and manage every complaint across the platform."
       />
 
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {loading && <p role="status" className="mb-4 text-sm text-ink-500">Loading complaints…</p>}
+      {loadError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{loadError}</p>}
+
+      <div className={`mb-4 grid grid-cols-1 gap-3 ${USE_REAL_API ? '' : 'sm:grid-cols-2'}`}>
         <div className="card p-4">
           <p className="text-sm text-ink-500">
             Total Complaints
@@ -174,14 +192,14 @@ export function AdminAllComplaintsPage() {
           </p>
         </div>
 
-        <div className="card p-4">
+        {!USE_REAL_API && <div className="card p-4">
           <p className="text-sm text-ink-500">
             Complaints with Possible Duplicates
           </p>
           <p className="mt-1 text-2xl font-semibold text-amber-600">
             {duplicateCount}
           </p>
-        </div>
+        </div>}
       </div>
 
       <div className="card">
@@ -216,19 +234,19 @@ export function AdminAllComplaintsPage() {
                 onChange={setPriorityFilter}
               />
 
-              <FilterControl
+              {!USE_REAL_API && <FilterControl
                 label="Assignment"
                 value={assignmentFilter}
                 options={assignmentOptions}
                 onChange={setAssignmentFilter}
-              />
+              />}
 
-              <FilterControl
+              {!USE_REAL_API && <FilterControl
                 label="Duplicates"
                 value={duplicateFilter}
                 options={duplicateOptions}
                 onChange={setDuplicateFilter}
-              />
+              />}
             </FilterBar>
           </div>
         </div>
@@ -279,9 +297,9 @@ export function AdminAllComplaintsPage() {
             <ComplaintTable
               complaints={filtered}
               showPriority
-              showAssignedTo
-              showEscalation
-              showDuplicateInfo
+              showAssignedTo={!USE_REAL_API}
+              showEscalation={!USE_REAL_API}
+              showDuplicateInfo={!USE_REAL_API}
             />
           </>
         )}

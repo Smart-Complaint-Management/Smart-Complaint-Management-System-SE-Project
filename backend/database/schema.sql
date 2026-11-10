@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS complaint_categories (
 
 CREATE TABLE IF NOT EXISTS complaints (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    public_id VARCHAR(32) NOT NULL UNIQUE,
     user_id INT NOT NULL,
     category_id INT,
     title VARCHAR(200) NOT NULL,
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS complaints (
     priority ENUM(
         'low',
         'medium',
-        'high'
+        'high',
+        'critical'
     ) NOT NULL DEFAULT 'medium',
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +71,15 @@ CREATE TABLE IF NOT EXISTS complaints (
     FOREIGN KEY (category_id)
         REFERENCES complaint_categories(id)
 );
+
+INSERT INTO complaint_categories (name, description) VALUES
+    ('facilities', 'Facilities'),
+    ('it_infrastructure', 'IT Infrastructure'),
+    ('academic', 'Academic'),
+    ('administrative', 'Administrative'),
+    ('harassment', 'Harassment & Safety'),
+    ('other', 'Other')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 -- =========================================
 -- TABLE 4: COMPLAINT ASSIGNMENTS

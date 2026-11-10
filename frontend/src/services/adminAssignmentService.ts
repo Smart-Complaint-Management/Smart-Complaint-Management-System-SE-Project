@@ -116,7 +116,7 @@ export function assignComplaint(params: AssignComplaintParams): AssignmentResult
   }
 
   const existingComplaint = complaints[complaintIndex];
-  const previousTeam = existingComplaint.assignedTo;
+  const previousTeam = existingComplaint.assignedTo ?? null;
 
   if (previousTeam === trimmedTeam) {
     return {

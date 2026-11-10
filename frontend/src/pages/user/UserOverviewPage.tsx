@@ -1,21 +1,32 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, FileText, Clock, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SummaryMetric } from '@/components/ui/SummaryMetric';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { useRole } from '@/context/RoleContext';
-import { mockComplaints } from '@/data/mockData';
+import { useAuth } from '@/pages/auth/authContext';
+import type { Complaint } from '@/types';
+import { loadComplaints, USE_REAL_API } from '@/services/api';
 import { formatDate, relativeTime } from '@/services/api';
 
 // Demo data: these counts are derived from the local mock dataset, not from a
 // live backend. They are recalculated on each render so the overview stays in
 // sync if the mock data changes.
 export function UserOverviewPage() {
-  const { user } = useRole();
-  const myComplaints = mockComplaints.filter((c) => c.submittedBy === user.name);
+  const { session } = useAuth();
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loadError, setLoadError] = useState('');
+  const userName = session?.fullName ?? 'User';
+  useEffect(() => {
+    let active = true;
+    loadComplaints(session).then((items) => { if (active) setComplaints(items); })
+      .catch((error: unknown) => { if (active) setLoadError(error instanceof Error ? error.message : 'Could not load complaints.'); });
+    return () => { active = false; };
+  }, [session]);
+  const myComplaints = useMemo(() => complaints, [complaints]);
   const active = myComplaints.filter((c) => c.status === 'submitted' || c.status === 'under_review' || c.status === 'in_progress');
   const resolved = myComplaints.filter((c) => c.status === 'resolved');
-  const escalated = myComplaints.filter((c) => c.isEscalated);
+  const escalated = myComplaints.filter((c) => c.isEscalated === true);
   const recent = [...myComplaints].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
   ).slice(0, 4);
@@ -23,7 +34,7 @@ export function UserOverviewPage() {
   return (
     <div>
       <PageHeader
-        title={`Welcome, ${user.name.split(' ')[0]}`}
+        title={`Welcome, ${userName.split(' ')[0]}`}
         description="Track, manage, and register complaints from your personal workspace."
         actions={
           <Link to="/complaints/new" className="btn btn-primary">
@@ -33,11 +44,12 @@ export function UserOverviewPage() {
       />
 
       {/* Metrics row */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {loadError && <p role="alert" className="mb-4 text-sm text-rose-700">{loadError}</p>}
+      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${USE_REAL_API ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
         <SummaryMetric label="Total Complaints" value={myComplaints.length} icon={FileText} hint="All complaints you have registered." />
         <SummaryMetric label="Active" value={active.length} icon={Clock} accent="warning" hint="Awaiting resolution or review." />
         <SummaryMetric label="Resolved" value={resolved.length} icon={CheckCircle2} accent="success" hint="Successfully closed complaints." />
-        <SummaryMetric label="Escalated" value={escalated.length} icon={AlertTriangle} accent="danger" hint="Complaints you have escalated." />
+        {!USE_REAL_API && <SummaryMetric label="Escalated" value={escalated.length} icon={AlertTriangle} accent="danger" hint="Complaints you have escalated." />}
       </div>
 
       {/* Recent complaints */}

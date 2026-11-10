@@ -1,22 +1,30 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Search, ArrowRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useAuth } from '@/pages/auth/authContext';
-import { mockComplaints } from '@/data/mockData';
+import type { Complaint } from '@/types';
+import { loadComplaints } from '@/services/api';
 import { formatDate } from '@/services/api';
 
 export function UserTrackPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const [myComplaints, setMyComplaints] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const myComplaints = useMemo(
-    () => mockComplaints.filter((c) => c.submittedBy === session?.fullName),
-    [session?.fullName],
-  );
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    loadComplaints(session).then((items) => { if (active) setMyComplaints(items); })
+      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : 'Could not load complaints.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [session]);
 
   const matches = useMemo(() => {
     if (query.trim() === '') return myComplaints;
@@ -28,6 +36,8 @@ export function UserTrackPage() {
 
   return (
     <div>
+      {loading && <p role="status" className="mb-3 text-sm text-ink-500">Loading complaints…</p>}
+      {error && <p role="alert" className="mb-3 text-sm text-rose-700">{error}</p>}
       <PageHeader
         title="Track a Complaint"
         description="Enter a complaint ID or subject to quickly find and track its progress."

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Send } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -8,11 +8,9 @@ import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/pages/auth/authContext';
 import { categoryLabels } from '@/data/mockData';
-import { formatDateTime } from '@/services/api';
+import { formatDateTime, loadComplaint, USE_REAL_API } from '@/services/api';
 
 import {
-  getComplaintUpdates,
-  getComplaints,
   submitComplaintEscalation,
   updateComplaintStatus,
   updateComplaintPriority,
@@ -23,6 +21,8 @@ import {
 import type {
   ComplaintPriority,
   ComplaintStatus,
+  ComplaintUpdate,
+  Complaint,
   DuplicateReviewStatus,
 } from '@/types';
 
@@ -36,25 +36,11 @@ export function ComplaintDetailPage() {
   const { session, logout } = useAuth();
   const isAdmin = session?.role === 'admin';
   const navigate = useNavigate();
-
-  const foundComplaint = useMemo(
-    () => getComplaints().find((c) => c.id === id),
-    [id],
-  );
-
-  const complaint =
-    foundComplaint &&
-    (isAdmin ||
-      (session &&
-        foundComplaint.submittedBy === session.fullName))
-      ? foundComplaint
-      : undefined;
-
-  const [updates, setUpdates] = useState(() =>
-    getComplaintUpdates().filter(
-      (update) => update.complaintId === id,
-    ),
-  );
+  const [complaint, setComplaint] = useState<Complaint>();
+  const [complaintLoading, setComplaintLoading] = useState(true);
+  const [complaintLoadError, setComplaintLoadError] = useState('');
+  const [updates, setUpdates] = useState<ComplaintUpdate[]>([]);
+  const isDemoComplaint = !complaint?.databaseId;
 
   const [showEscalationForm, setShowEscalationForm] =
     useState(false);
@@ -79,7 +65,7 @@ export function ComplaintDetailPage() {
 
   const [displayedStatus, setDisplayedStatus] =
     useState<ComplaintStatus>(
-      foundComplaint?.status ?? 'submitted',
+      'submitted',
     );
 
   const [isUpdatingStatus, setIsUpdatingStatus] =
@@ -91,7 +77,7 @@ export function ComplaintDetailPage() {
   // Priority override state
   const [displayedPriority, setDisplayedPriority] =
     useState<ComplaintPriority>(
-      foundComplaint?.priority ?? 'low',
+      'low',
     );
 
   const [pendingPriority, setPendingPriority] =
@@ -104,7 +90,7 @@ export function ComplaintDetailPage() {
   // Duplicate review state
   const [duplicateReviewStatus, setDuplicateReviewStatus] =
     useState<DuplicateReviewStatus>(
-      foundComplaint?.duplicateReviewStatus ?? 'pending',
+      'pending',
     );
   const [duplicateReviewMessage, setDuplicateReviewMessage] =
     useState('');
@@ -113,78 +99,62 @@ export function ComplaintDetailPage() {
 
   useEffect(() => {
     let active = true;
-
+    setComplaintLoading(true);
+    setComplaintLoadError('');
+    loadComplaint(id ?? '', session).then((detail) => {
+      if (!active) return;
+      setComplaint(detail?.complaint);
+      setUpdates(detail?.updates ?? []);
+      if (detail) {
+        setDisplayedStatus(detail.complaint.status);
+        setDisplayedPriority(detail.complaint.priority);
+        setDuplicateReviewStatus(detail.complaint.duplicateReviewStatus ?? 'pending');
+      }
+    }).catch((error: unknown) => {
+      if (active) setComplaintLoadError(error instanceof Error ? error.message : 'Could not load this complaint.');
+    }).finally(() => { if (active) setComplaintLoading(false); });
     setPendingStatus(null);
     setStatusMessage('');
     setStatusLoadFailed(false);
 
-    setDisplayedStatus(
-      foundComplaint?.status ?? 'submitted',
-    );
-
-    setDisplayedPriority(
-      foundComplaint?.priority ?? 'low',
-    );
-
     setPendingPriority(null);
     setPriorityMessage('');
-    setDuplicateReviewStatus(foundComplaint?.duplicateReviewStatus ?? 'pending');
     setDuplicateReviewMessage('');
-
-    setUpdates(
-      getComplaintUpdates().filter(
-        (update) => update.complaintId === id,
-      ),
-    );
-
-    if (
-      import.meta.env.VITE_USE_REAL_API === 'true' &&
-      id &&
-      /^\d+$/.test(id)
-    ) {
-      getComplaintStatus(id)
-        .then((result) => {
-          if (!active) return;
-
-          setDisplayedStatus(result.status);
-          setUpdates(result.updates);
-        })
-        .catch((error: unknown) => {
-          if (!active) return;
-
-          const status = (error as { status?: number }).status;
-
-          if (status === 401) {
-            logout();
-            navigate('/login', { replace: true });
-            return;
-          }
-
-          setStatusMessage(
-            error instanceof Error
-              ? error.message
-              : 'Could not load complaint status history.',
-          );
-
-          setStatusLoadFailed(true);
-        });
-    }
-
     return () => {
       active = false;
     };
   }, [
     id,
-    foundComplaint?.status,
-    foundComplaint?.priority,
-    logout,
-    navigate,
-    statusLoadRetry,
+    session,
   ]);
+
+  useEffect(() => {
+    if (!USE_REAL_API || !complaint?.databaseId) return;
+    let active = true;
+    getComplaintStatus(String(complaint.databaseId)).then((result) => {
+      if (!active) return;
+      setDisplayedStatus(result.status);
+      setUpdates(result.updates.map((update) => ({ ...update, complaintId: complaint.id })));
+    }).catch((error: unknown) => {
+      if (!active) return;
+      const status = (error as { status?: number }).status;
+      if (status === 401) {
+        logout();
+        navigate('/login', { replace: true });
+        return;
+      }
+      setStatusMessage(error instanceof Error ? error.message : 'Could not load complaint status history.');
+      setStatusLoadFailed(true);
+    });
+    return () => { active = false; };
+  }, [complaint?.databaseId, complaint?.id, logout, navigate, statusLoadRetry]);
+
+  if (complaintLoading) return <p role="status" className="text-sm text-ink-500">Loading complaint…</p>;
 
   if (!complaint) {
     return (
       <div className="card">
+        {complaintLoadError && <p role="alert" className="mb-4 text-sm text-rose-700">{complaintLoadError}</p>}
         <EmptyState
           icon={<AlertTriangle className="h-6 w-6" />}
           title="Complaint not found"
@@ -210,6 +180,7 @@ export function ComplaintDetailPage() {
   }
 
   const canEscalate =
+    isDemoComplaint &&
     !isAdmin &&
     !complaint.isEscalated &&
     displayedStatus !== 'resolved' &&
@@ -292,7 +263,7 @@ export function ComplaintDetailPage() {
     setIsUpdatingStatus(true);
 
     try {
-      if (!/^\d+$/.test(id)) {
+      if (!complaint.databaseId) {
         const result = updateComplaintStatus(
           id,
           pendingStatus,
@@ -339,7 +310,7 @@ export function ComplaintDetailPage() {
       }
 
       const result = await patchComplaintStatus(
-        id,
+        String(complaint.databaseId),
         pendingStatus,
       );
 
@@ -405,7 +376,7 @@ export function ComplaintDetailPage() {
     if (!id || !pendingPriority) return;
 
     // Backend priority update API is not available yet.
-    if (/^\d+$/.test(id)) {
+    if (complaint.databaseId) {
       setPriorityMessage(
         'Priority override is currently available for demo complaints only. Backend API support is required for database complaints.',
       );
@@ -486,7 +457,7 @@ export function ComplaintDetailPage() {
       return;
     }
 
-    if (/^\\d+$/.test(id)) {
+    if (complaint.databaseId) {
       setDuplicateReviewMessage(
         'Duplicate review is currently available for demo complaints only. Backend API support is required for database complaints.',
       );
@@ -625,7 +596,7 @@ export function ComplaintDetailPage() {
                   Category
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink-700">
-                  {categoryLabels[complaint.category]}
+                  {categoryLabels[complaint.category ?? ''] ?? complaint.category ?? 'Uncategorized'}
                 </dd>
               </div>
 
@@ -647,14 +618,14 @@ export function ComplaintDetailPage() {
                 </dd>
               </div>
 
-              <div>
+              {complaint.assignedTo !== undefined && <div>
                 <dt className="text-xs font-medium text-ink-400">
                   Assigned To
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink-700">
                   {complaint.assignedTo ?? '— Unassigned'}
                 </dd>
-              </div>
+              </div>}
 
               <div>
                 <dt className="text-xs font-medium text-ink-400">
@@ -731,8 +702,8 @@ export function ComplaintDetailPage() {
                   </button>
                 </div>
 
-                {/* Priority override */}
-                <div className="border-t border-ink-100 pt-4">
+                {/* Priority override remains available for the local demo records. */}
+                {!complaint.databaseId && <div className="border-t border-ink-100 pt-4">
                   <label
                     htmlFor="priority-override"
                     className="text-xs font-medium text-ink-400"
@@ -788,10 +759,10 @@ export function ComplaintDetailPage() {
                       {priorityMessage}
                     </p>
                   )}
-                </div>
+                </div>}
 
                 {/* Assignment */}
-                <div className="border-t border-ink-100 pt-4">
+                {complaint.assignedTo !== undefined && <div className="border-t border-ink-100 pt-4">
                   <label className="text-xs font-medium text-ink-400">
                     Assign To
                   </label>
@@ -815,13 +786,13 @@ export function ComplaintDetailPage() {
                       Finance Office
                     </option>
                   </select>
-                </div>
+                </div>}
 
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                {!complaint.databaseId && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
                   Demo complaint status and priority changes
                   are stored in this browser only. Database
                   complaints require backend API support.
-                </p>
+                </p>}
               </div>
             </div>
           )}

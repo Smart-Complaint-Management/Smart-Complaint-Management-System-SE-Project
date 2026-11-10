@@ -6,6 +6,8 @@ from sqlalchemy import text
 from werkzeug.security import check_password_hash, generate_password_hash
 import secrets
 import re
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from auth import current_user, require_admin
 from config import Config
@@ -17,6 +19,17 @@ app.config.from_object(Config)
 db = SQLAlchemy(app)
 
 STATUS_VALUES = {"submitted", "under_review", "in_progress", "resolved", "rejected"}
+PRIORITY_VALUES = {"low", "medium", "high", "critical"}
+CATEGORY_LABELS = {
+    "facilities": "facilities",
+    "it_infrastructure": "it_infrastructure",
+    "it infrastructure": "it_infrastructure",
+    "academic": "academic",
+    "administrative": "administrative",
+    "harassment": "harassment",
+    "harassment & safety": "harassment",
+    "other": "other",
+}
 
 
 @app.before_request
@@ -222,6 +235,181 @@ def database_health():
         }), 503
 
 
+def complaint_json(row):
+    created_at = row["created_at"]
+    updated_at = row["updated_at"]
+    submitted_at = created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
+    changed_at = updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at)
+    if not submitted_at.endswith("Z") and "+" not in submitted_at:
+        submitted_at += "Z"
+    if not changed_at.endswith("Z") and "+" not in changed_at:
+        changed_at += "Z"
+    return {
+        "id": row["public_id"],
+        "databaseId": row["id"],
+        "title": row["title"],
+        "description": row["description"],
+        "category": CATEGORY_LABELS.get((row["category"] or "").strip().lower()),
+        "priority": row["priority"],
+        "status": row["status"],
+        "submittedBy": row["full_name"],
+        "submittedAt": submitted_at,
+        "updatedAt": changed_at,
+    }
+
+
+def complaint_updates(complaint_id):
+    rows = db.session.execute(text(
+        "SELECT id, old_status, new_status, changed_at "
+        "FROM complaint_history WHERE complaint_id = :complaint_id "
+        "ORDER BY changed_at, id"
+    ), {"complaint_id": complaint_id}).mappings().all()
+    updates = []
+    for row in rows:
+        changed_at = row["changed_at"]
+        timestamp = changed_at.isoformat() if hasattr(changed_at, "isoformat") else str(changed_at)
+        if " " in timestamp and "T" not in timestamp:
+            timestamp = timestamp.replace(" ", "T", 1)
+        if not timestamp.endswith("Z") and "+" not in timestamp:
+            timestamp += "Z"
+        status = row["new_status"]
+        updates.append({
+            "id": str(row["id"]),
+            "status": status,
+            "message": (
+                "Complaint registered. Awaiting triage and assignment."
+                if row["old_status"] is None
+                else "Complaint resolved and case closed."
+                if status == "resolved"
+                else f"Status changed to {status.replace('_', ' ').title()}."
+            ),
+            "author": "System" if row["old_status"] is None else "Administrator",
+            "timestamp": timestamp,
+        })
+    return updates
+
+
+@app.route("/complaints", methods=["POST"])
+def create_complaint():
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "A JSON request is required."}), 400
+
+    title = payload.get("title")
+    description = payload.get("description")
+    category = payload.get("category")
+    priority = payload.get("priority")
+    if not isinstance(title, str) or not title.strip():
+        return jsonify({"error": "A complaint title is required.", "field": "title"}), 400
+    if len(title.strip()) > 200:
+        return jsonify({"error": "Title must be 200 characters or fewer.", "field": "title"}), 400
+    if not isinstance(description, str) or not description.strip():
+        return jsonify({"error": "A complaint description is required.", "field": "description"}), 400
+    if not isinstance(category, str) or not category.strip():
+        return jsonify({"error": "A complaint category is required.", "field": "category"}), 400
+    if not isinstance(priority, str) or priority not in PRIORITY_VALUES:
+        return jsonify({"error": "A valid complaint priority is required.", "field": "priority"}), 400
+
+    try:
+        with db.session.begin():
+            category_id = db.session.execute(text(
+                "SELECT id FROM complaint_categories WHERE name = :name"
+            ), {"name": category}).scalar_one_or_none()
+            if category_id is None:
+                return jsonify({"error": "The selected category is not valid.", "field": "category"}), 400
+
+            pending_public_id = f"TMP-{uuid4().hex}"
+            result = db.session.execute(text(
+                "INSERT INTO complaints "
+                "(public_id, user_id, category_id, title, description, status, priority) "
+                "VALUES (:public_id, :user_id, :category_id, :title, :description, 'submitted', :priority)"
+            ), {
+                "public_id": pending_public_id,
+                "user_id": user.id,
+                "category_id": category_id,
+                "title": title.strip(),
+                "description": description.strip(),
+                "priority": priority,
+            })
+            complaint_id = result.lastrowid
+            if db.engine.dialect.name == "sqlite":
+                complaint_id = db.session.execute(text("SELECT last_insert_rowid()")).scalar_one()
+            year = datetime.now(timezone.utc).year
+            public_id = f"CMP-{year}-{complaint_id:06d}"
+            db.session.execute(text(
+                "UPDATE complaints SET public_id = :public_id WHERE id = :id"
+            ), {"public_id": public_id, "id": complaint_id})
+            db.session.execute(text(
+                "INSERT INTO complaint_history "
+                "(complaint_id, old_status, new_status, changed_by) "
+                "VALUES (:complaint_id, NULL, 'submitted', :changed_by)"
+            ), {"complaint_id": complaint_id, "changed_by": user.id})
+
+            row = db.session.execute(text(
+                "SELECT c.id, c.public_id, c.title, c.description, c.status, c.priority, "
+                "c.created_at, c.updated_at, u.full_name, cc.name AS category "
+                "FROM complaints c JOIN users u ON u.id = c.user_id "
+                "LEFT JOIN complaint_categories cc ON cc.id = c.category_id WHERE c.id = :id"
+            ), {"id": complaint_id}).mappings().one()
+            response_body = complaint_json(row)
+    except Exception:
+        app.logger.exception("Complaint creation failed")
+        return jsonify({"error": "Could not create complaint."}), 500
+
+    return jsonify(response_body), 201
+
+
+@app.route("/complaints", methods=["GET"])
+def list_complaints():
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+    ownership_filter = "" if user.role == "admin" else "WHERE c.user_id = :user_id"
+    parameters = {} if user.role == "admin" else {"user_id": user.id}
+    try:
+        rows = db.session.execute(text(
+            "SELECT c.id, c.public_id, c.title, c.description, c.status, c.priority, "
+            "c.created_at, c.updated_at, u.full_name, cc.name AS category "
+            "FROM complaints c JOIN users u ON u.id = c.user_id "
+            "LEFT JOIN complaint_categories cc ON cc.id = c.category_id "
+            f"{ownership_filter} ORDER BY c.created_at DESC, c.id DESC"
+        ), parameters).mappings().all()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Complaint listing failed")
+        return jsonify({"error": "Could not retrieve complaints."}), 500
+    return jsonify({"items": [complaint_json(row) for row in rows]}), 200
+
+
+@app.route("/complaints/<string:public_id>", methods=["GET"])
+def get_complaint(public_id):
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+    try:
+        row = db.session.execute(text(
+            "SELECT c.id, c.public_id, c.user_id, c.title, c.description, c.status, c.priority, "
+            "c.created_at, c.updated_at, u.full_name, cc.name AS category "
+            "FROM complaints c JOIN users u ON u.id = c.user_id "
+            "LEFT JOIN complaint_categories cc ON cc.id = c.category_id "
+            "WHERE c.public_id = :public_id"
+        ), {"public_id": public_id}).mappings().first()
+        if row is None:
+            return jsonify({"error": "Complaint not found."}), 404
+        if user.role != "admin" and row["user_id"] != user.id:
+            return jsonify({"error": "You cannot view this complaint."}), 403
+        result = complaint_json(row)
+        result["updates"] = complaint_updates(row["id"])
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Complaint retrieval failed")
+        return jsonify({"error": "Could not retrieve complaint."}), 500
+    return jsonify(result), 200
+
+
 @app.route("/notifications", methods=["GET"])
 def get_notifications():
     user = current_user()
@@ -411,8 +599,8 @@ def get_complaint_status(complaint_id: int):
             return jsonify({"error": "You cannot view this complaint."}), 403
 
         rows = db.session.execute(
-           text(
-    "SELECT id, new_status, changed_at "
+            text(
+           "SELECT id, old_status, new_status, changed_at "
     "FROM complaint_history "
     "WHERE complaint_id = :complaint_id "
     "ORDER BY changed_at, id"
@@ -442,7 +630,7 @@ def get_complaint_status(complaint_id: int):
                 if status == "resolved"
                 else f"Status changed to {status.replace('_', ' ').title()}."
             ),
-            "author": "Administrator",
+            "author": "System" if row["old_status"] is None else "Administrator",
             "timestamp": timestamp,
         })
 

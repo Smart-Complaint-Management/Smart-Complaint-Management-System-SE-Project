@@ -25,20 +25,23 @@ export type DuplicateReviewStatus =
   | 'not_duplicate';
 
 export interface Complaint {
+  /** Stable public CMP tracking ID. */
   id: string;
+  /** Integer MySQL primary key used by the existing status endpoints. */
+  databaseId?: number;
   subject: string;
   description: string;
-  category: ComplaintCategory;
+  category: ComplaintCategory | null;
   status: ComplaintStatus;
   priority: ComplaintPriority;
   submittedBy: string;
-  assignedTo: string | null;
+  assignedTo?: string | null;
   submittedAt: string;
   updatedAt: string;
-  isEscalated: boolean;
+  isEscalated?: boolean;
 
   // ID of the most likely matching complaint, if one was detected.
-  possibleDuplicateId: string | null;
+  possibleDuplicateId?: string | null;
 
   // Admin review information for a suspected duplicate.
   duplicateReviewStatus?: DuplicateReviewStatus;

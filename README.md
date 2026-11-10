@@ -272,7 +272,7 @@ No deployment credentials are stored in the repository. The workflow has read-on
 
 ### Backend deployment status and future setup
 
-The backend currently exposes only `/`, `/health`, and `/db-health`; the complaint, authentication, assignment, and notification APIs are not implemented. The React app does not call those routes. For that reason, this workflow does not publish a backend or claim end-to-end frontend/backend deployment.
+The backend exposes health checks, authentication, MySQL-backed complaint creation/list/detail routes, status updates, and notification retrieval. Assignment and escalation persistence are not implemented. The frontend keeps `VITE_USE_REAL_API` disabled by default, and no backend service or managed MySQL database is provisioned by this repository. For that reason, this workflow does not publish a backend or claim end-to-end deployment.
 
 When a real MySQL host and API contract are available, create a Render Web Service for the `backend/` directory, set the `DB_*` variables above and `CORS_ALLOWED_ORIGINS` to the Vercel origin, and use:
 
@@ -281,7 +281,7 @@ pip install -r requirements.txt -r production-requirements.txt
 gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
-Render's free web services can sleep after inactivity and take time to wake. Render does not provide a free managed MySQL service in this architecture; do not replace MySQL with Render Postgres without an explicit migration decision. Until an external MySQL database is configured, `/db-health` will report unavailable. Until complaint APIs are implemented and wired into the frontend, browser complaint data remains mock/local demo data and is not persisted by MySQL.
+Render's free web services can sleep after inactivity and take time to wake. Render does not provide a free managed MySQL service in this architecture; do not replace MySQL with Render Postgres without an explicit migration decision. Until an external MySQL database is configured, `/db-health` will report unavailable. Complaint APIs are available in the code, but complaint persistence is used by the frontend only when real API mode is explicitly configured; escalation and assignment remain local demo workflows.
 
 
 ### Deployed app the link below:

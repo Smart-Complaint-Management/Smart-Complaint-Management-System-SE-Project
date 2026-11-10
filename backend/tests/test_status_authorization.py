@@ -21,7 +21,14 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                 email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'user')"""))
             db.session.execute(text("""CREATE TABLE complaints (
-                id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, status TEXT NOT NULL)"""))
+                id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL, category_id INTEGER NOT NULL, title TEXT NOT NULL,
+                description TEXT NOT NULL, status TEXT NOT NULL, priority TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
+            db.session.execute(text("""CREATE TABLE complaint_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
+                description TEXT)"""))
             db.session.execute(text("""CREATE TABLE auth_sessions (
                 session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL)"""))
             db.session.execute(text("""CREATE TABLE complaint_history (
@@ -40,8 +47,11 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                 "(2, 'Test Admin', 'admin@example.test', :hash2, 'admin')"),
                 {"hash": generate_password_hash("UserPass123"),
                  "hash2": generate_password_hash("AdminPass123")})
-            db.session.execute(text("INSERT INTO complaints (id, user_id, status) VALUES (1, 1, 'submitted')"))
-            db.session.execute(text("INSERT INTO complaints (id, user_id, status) VALUES (2, 2, 'submitted')"))
+            db.session.execute(text("INSERT INTO complaint_categories (id, name) VALUES (1, 'facilities')"))
+            db.session.execute(text("INSERT INTO complaints (id, public_id, user_id, category_id, title, description, status, priority) VALUES "
+                                    "(1, 'CMP-2026-000001', 1, 1, 'User complaint', 'Description', 'submitted', 'medium')"))
+            db.session.execute(text("INSERT INTO complaints (id, public_id, user_id, category_id, title, description, status, priority) VALUES "
+                                    "(2, 'CMP-2026-000002', 2, 1, 'Admin complaint', 'Description', 'submitted', 'medium')"))
             db.session.commit()
         self.client = app.test_client()
 
@@ -300,6 +310,114 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         self.login('admin@example.test', 'AdminPass123')
         self.assertEqual(self.client.patch('/complaints/1/status', json={'status': 'resolved'}).status_code, 403)
         self.assertEqual(self.status(), 'submitted')
+
+    def test_complaint_creation_requires_authentication(self):
+        response = self.client.post('/complaints', json={
+            'title': 'A valid title', 'description': 'A valid description',
+            'category': 'facilities', 'priority': 'medium'
+        })
+        self.assertEqual(response.status_code, 401)
+
+    def test_complaint_creation_requires_csrf_token(self):
+        self.login('user@example.test', 'UserPass123')
+        response = self.client.post('/complaints', json={
+            'title': 'A valid title', 'description': 'A valid description',
+            'category': 'facilities', 'priority': 'medium'
+        })
+        self.assertEqual(response.status_code, 403)
+        with app.app_context():
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaints')).scalar(), 2)
+
+    def test_complaint_creation_persists_public_id_and_initial_history(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        response = self.client.post('/complaints', json={
+            'title': 'Broken classroom lights',
+            'description': 'The lights in the classroom have stopped working.',
+            'category': 'facilities', 'priority': 'critical', 'userId': 2, 'role': 'admin'
+        }, headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 201, response.get_json())
+        self.assertRegex(response.json['id'], r'^CMP-\d{4}-\d{6}$')
+        self.assertTrue(response.json['id'].endswith('-000003'))
+        self.assertEqual(response.json['databaseId'], 3)
+        self.assertEqual(response.json['priority'], 'critical')
+        self.assertEqual(response.json['submittedBy'], 'Test User')
+        self.assertNotIn('assignedTo', response.json)
+        self.assertNotIn('isEscalated', response.json)
+        with app.app_context():
+            complaint = db.session.execute(text(
+                'SELECT user_id, public_id, priority FROM complaints WHERE id=3'
+            )).one()
+            history = db.session.execute(text(
+                'SELECT old_status, new_status, changed_by FROM complaint_history WHERE complaint_id=3'
+            )).one()
+        self.assertEqual(complaint, (1, response.json['id'], 'critical'))
+        self.assertEqual(history, (None, 'submitted', 1))
+
+    def test_complaint_validation_rejects_missing_fields_and_unknown_category(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        headers = {'X-CSRF-Token': token}
+        invalid = [
+            ({'description': 'Description', 'category': 'facilities', 'priority': 'low'}, 'title'),
+            ({'title': 'Title', 'description': 'Description', 'category': 'unknown', 'priority': 'low'}, 'category'),
+            ({'title': 'Title', 'description': 'Description', 'category': 'facilities', 'priority': 'urgent'}, 'priority'),
+        ]
+        for payload, field in invalid:
+            with self.subTest(field=field):
+                response = self.client.post('/complaints', json=payload, headers=headers)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json['field'], field)
+        with app.app_context():
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaints')).scalar(), 2)
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_history')).scalar(), 0)
+
+    def test_complaint_list_is_owner_scoped_and_admin_can_list_all(self):
+        self.login('user@example.test', 'UserPass123')
+        own = self.client.get('/complaints')
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual([item['id'] for item in own.json['items']], ['CMP-2026-000001'])
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': self.client.get('/auth/me').json['csrfToken']})
+        self.login('admin@example.test', 'AdminPass123')
+        admin = self.client.get('/complaints')
+        self.assertEqual(admin.status_code, 200)
+        self.assertEqual(len(admin.json['items']), 2)
+
+    def test_complaint_detail_enforces_owner_access_and_returns_submission_history(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        created = self.client.post('/complaints', json={
+            'title': 'A complaint of mine', 'description': 'A detailed description of the issue.',
+            'category': 'facilities', 'priority': 'medium'
+        }, headers={'X-CSRF-Token': token})
+        own_id = created.json['id']
+        self.assertEqual(self.client.get('/complaints/CMP-2026-000002').status_code, 403)
+        own = self.client.get(f'/complaints/{own_id}')
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(own.json['updates'][0]['status'], 'submitted')
+        self.assertEqual(own.json['updates'][0]['author'], 'System')
+        self.assertEqual(self.client.get('/complaints/CMP-2026-999999').status_code, 404)
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': self.client.get('/auth/me').json['csrfToken']})
+        self.login('admin@example.test', 'AdminPass123')
+        self.assertEqual(self.client.get('/complaints/CMP-2026-000001').status_code, 200)
+
+    def test_complaint_and_initial_history_roll_back_together(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        with app.app_context():
+            db.session.execute(text("""CREATE TRIGGER fail_initial_history
+                BEFORE INSERT ON complaint_history BEGIN
+                SELECT RAISE(ABORT, 'history insert failed'); END"""))
+            db.session.commit()
+        response = self.client.post('/complaints', json={
+            'title': 'Broken classroom lights',
+            'description': 'The lights in the classroom have stopped working.',
+            'category': 'facilities', 'priority': 'medium'
+        }, headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 500)
+        with app.app_context():
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaints')).scalar(), 2)
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_history')).scalar(), 0)
 
 
 if __name__ == '__main__':

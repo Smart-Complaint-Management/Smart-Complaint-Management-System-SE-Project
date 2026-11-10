@@ -2,7 +2,7 @@
 
 ## Overview
 
-This backend provides Flask authentication and the administrator-only MySQL complaint status endpoint.
+This backend provides Flask authentication, MySQL-backed complaint creation/retrieval, administrator-only status updates, and user-scoped notifications.
 
 ## Technologies Used
 
@@ -93,10 +93,12 @@ python app.py
 
 ## Existing database migration
 
-For an existing database, take a normal database backup and apply the one-time migration from the repository root:
+For an existing database, take a normal database backup and apply the migrations in order from the repository root. V4 assigns stable public IDs to existing complaint rows; inspect the live database and any separately issued tracking IDs for conflicts before applying it. The migration is not run by the application.
 
 ```bash
 mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V2__authentication_and_statuses.sql
+mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V3__notifications.sql
+mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V4__persistent_complaints.sql
 ```
 
 The migration retains all complaint and history rows. Existing `pending` complaint records become `submitted`; old history strings remain intact. Existing `staff` accounts are mapped to the SRS `user` role before the role column is narrowed to `user` and `admin`. For a new database, use `backend/database/schema.sql` instead.
@@ -114,6 +116,9 @@ Use a unique random `SECRET_KEY` for each deployment (for example, generate one 
 | `/auth/login` | POST | Verify credentials and issue an HttpOnly Flask session cookie |
 | `/auth/me` | GET | Return the server-verified session identity and CSRF token |
 | `/auth/logout` | POST | Clear the server session |
+| `/complaints` | POST | Create a complaint for the authenticated account; records the initial submitted history event transactionally |
+| `/complaints` | GET | List complaints owned by the user, or all complaints for an administrator |
+| `/complaints/<public-id>` | GET | Retrieve complaint details and status history; owner or administrator access |
 | `/complaints/<id>/status` | PATCH | Administrator-only complaint status update |
 | `/notifications` | GET | Return notifications for the authenticated account |
 
@@ -142,4 +147,4 @@ Each successful database status transition writes a notification for the complai
 
 ## Current Scope
 
-Complaint listing, creation, tracking, ownership, and escalation still use the frontend's mock/local browser data; they do not have Flask persistence endpoints in this repository. The frontend mock mode records status and escalation notifications in browser storage. In real API mode, the notifications page reads the authenticated backend endpoint; only database status changes currently create MySQL notifications. There is no backend escalation operation, so mock escalations cannot create MySQL notifications. Mock `CMP-...` records cannot be status-updated through the numeric-ID database endpoint. Administrator status persistence requires an existing database complaint ID.
+Complaint creation, listing, and detail retrieval are available through authenticated MySQL endpoints. Public tracking IDs use `CMP-YYYY-NNNNNN`; integer database IDs remain in place for the existing status endpoints. Local demo data remains available when `VITE_USE_REAL_API` is not enabled. Escalation and assignment persistence are not implemented; their existing frontend demo workflows continue to use browser storage. Status updates and status notifications persist only for database-backed complaints.

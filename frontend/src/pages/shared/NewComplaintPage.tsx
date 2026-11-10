@@ -6,7 +6,7 @@ import { ArrowLeft, Send, Sparkles } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { categoryLabels } from '@/data/mockData';
 import { useAuth } from '@/pages/auth/authContext';
-import { createComplaint } from '@/services/complaintService';
+import { submitComplaint } from '@/services/api';
 import {
   DESCRIPTION_MAX,
   SUBJECT_MAX,
@@ -165,7 +165,7 @@ export function NewComplaintPage() {
     setSubmitting(true);
 
     try {
-      const created = await createComplaint({
+      const created = await submitComplaint({
         subject: form.subject,
         category: form.category,
         priority: suggestedPriority,

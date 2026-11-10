@@ -103,7 +103,7 @@ export function ComplaintTable({
 
               <td className="hidden px-3 py-3.5 md:table-cell">
                 <span className="text-sm text-ink-600">
-                  {categoryLabels[complaint.category]}
+                  {categoryLabels[complaint.category ?? ''] ?? complaint.category ?? 'Uncategorized'}
                 </span>
               </td>
 

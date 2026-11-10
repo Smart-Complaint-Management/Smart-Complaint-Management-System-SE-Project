@@ -15,21 +15,17 @@
 // functions exported from this module so the swap to the real backend is
 // transparent.
 
-import type { AppNotification, Complaint, ComplaintUpdate } from '@/types';
-import { mockComplaints, mockUpdates } from '@/data/mockData';
+import type { AppNotification, Complaint } from '@/types';
 import { getMyNotifications } from '@/services/complaintService';
+import { getComplaint as getLocalComplaint, getComplaintUpdates, getComplaints as getLocalComplaints, getMyComplaints, createComplaint as createLocalComplaint } from '@/services/complaintService';
+import { createComplaintRequest, getComplaintRequest, listComplaintsRequest } from '@/services/authApi';
+import type { NewComplaintInput } from '@/services/complaintService';
 import type { AuthSession } from '@/pages/auth/authContext';
 
-// --- Configuration -----------------------------------------------------------
-
-// Replace this default with the agreed Flask base URL when the backend is live.
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? 'http://localhost:5000' : '/api');
-
-// Set this to true once the Flask backend is available and the endpoint shapes
-// below match the agreed contract. Until then the mock implementation is used.
+// Keep demo mode as the default until all workflows are integrated.
 const USE_REAL_API = import.meta.env.VITE_USE_REAL_API === 'true';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ??
+  (import.meta.env.DEV ? 'http://localhost:5000' : '/api');
 
 // --- Shared helpers ----------------------------------------------------------
 
@@ -69,50 +65,33 @@ export function relativeTime(iso: string): string {
 
 // --- Mock implementations ----------------------------------------------------
 
-async function mockDelay<T>(value: T, ms = 150): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
-}
-
-function mockGetComplaints(): Promise<Complaint[]> {
-  return mockDelay(structuredClone(mockComplaints));
-}
-
-function mockGetComplaintById(id: string): Promise<Complaint | null> {
-  const found = mockComplaints.find((c) => c.id === id) ?? null;
-  return mockDelay(found ? structuredClone(found) : null);
-}
-
-function mockGetUpdatesForComplaint(id: string): Promise<ComplaintUpdate[]> {
-  const updates = mockUpdates.filter((u) => u.complaintId === id);
-  return mockDelay(structuredClone(updates));
-}
-
 function mockGetNotifications(session: AuthSession | null): Promise<AppNotification[]> {
-  return mockDelay(structuredClone(getMyNotifications(session)));
+  return Promise.resolve(getMyNotifications(session));
 }
 
-// --- Real API stubs (activated when USE_REAL_API is true) --------------------
-//
-// These functions use the Fetch API to call the Flask backend. The endpoint
-// paths are illustrative and MUST be confirmed against the final API contract.
-
-async function realGetComplaints(): Promise<Complaint[]> {
-  const res = await fetch(`${API_BASE_URL}/complaints`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
-  if (!res.ok) throw await responseError(res, 'Could not load complaints.');
-  return (await res.json()) as Complaint[];
+export async function loadComplaints(session: AuthSession | null): Promise<Complaint[]> {
+  if (USE_REAL_API) return listComplaintsRequest();
+  return session?.role === 'admin' ? getLocalComplaints() : getMyComplaints(session);
 }
 
-async function realGetComplaintById(id: string): Promise<Complaint | null> {
-  const res = await fetch(`${API_BASE_URL}/complaints/${encodeURIComponent(id)}`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
-  if (res.status === 404) return null;
-  if (!res.ok) throw await responseError(res, 'Could not load this complaint.');
-  return (await res.json()) as Complaint;
+export async function loadComplaint(id: string, session: AuthSession | null) {
+  if (USE_REAL_API) return getComplaintRequest(id);
+  const complaint = getLocalComplaint(id);
+  if (!complaint || (session?.role !== 'admin' && complaint.submittedBy !== session?.fullName)) return null;
+  return {
+    complaint,
+    updates: getComplaintUpdates().filter((update) => update.complaintId === id),
+  };
 }
 
-async function realGetUpdatesForComplaint(id: string): Promise<ComplaintUpdate[]> {
-  const res = await fetch(`${API_BASE_URL}/complaints/${encodeURIComponent(id)}/updates`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
-  if (!res.ok) throw await responseError(res, 'Could not load complaint updates.');
-  return (await res.json()) as ComplaintUpdate[];
+export function submitComplaint(input: NewComplaintInput): Promise<Complaint> {
+  if (!USE_REAL_API) return createLocalComplaint(input);
+  return createComplaintRequest({
+    title: input.subject,
+    description: input.description,
+    category: input.category,
+    priority: input.priority,
+  });
 }
 
 async function realGetNotifications(): Promise<AppNotification[]> {
@@ -127,17 +106,14 @@ async function realGetNotifications(): Promise<AppNotification[]> {
   return (await res.json()) as AppNotification[];
 }
 
-async function responseError(response: Response, fallback: string): Promise<Error> {
-  const data = await response.json().catch(() => ({})) as { error?: string };
-  return Object.assign(new Error(data.error ?? `${fallback} (request failed: ${response.status})`), { status: response.status });
-}
-
 // --- Public API surface ------------------------------------------------------
 
 export const api = {
-  getComplaints: USE_REAL_API ? realGetComplaints : mockGetComplaints,
-  getComplaintById: USE_REAL_API ? realGetComplaintById : mockGetComplaintById,
-  getUpdatesForComplaint: USE_REAL_API ? realGetUpdatesForComplaint : mockGetUpdatesForComplaint,
+  getComplaints: loadComplaints,
+  getComplaintById: async (id: string, session: AuthSession | null) =>
+    (await loadComplaint(id, session))?.complaint ?? null,
+  getUpdatesForComplaint: async (id: string, session: AuthSession | null) =>
+    (await loadComplaint(id, session))?.updates ?? [],
   getNotifications: (session: AuthSession | null) =>
     USE_REAL_API ? realGetNotifications() : mockGetNotifications(session),
 };

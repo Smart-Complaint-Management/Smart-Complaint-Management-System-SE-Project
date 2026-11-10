@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, X } from 'lucide-react';
 import { useAuth } from '../auth/authContext';
 import {
@@ -6,7 +6,7 @@ import {
   statusLabels,
   priorityLabels,
 } from '../../data/mockData';
-import { getMyComplaints } from '../../services/complaintService';
+import { loadComplaints } from '../../services/api';
 import type { Complaint } from '../../types';
 
 export function UserComplaintsPage() {
@@ -16,11 +16,21 @@ export function UserComplaintsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [myComplaints, setMyComplaints] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  const myComplaints = useMemo(
-    () => getMyComplaints(session),
-    [session]
-  );
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError('');
+    loadComplaints(session).then((items) => {
+      if (active) setMyComplaints(items);
+    }).catch((error: unknown) => {
+      if (active) setLoadError(error instanceof Error ? error.message : 'Could not load complaints.');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [session]);
 
   const filteredComplaints = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -31,7 +41,7 @@ export function UserComplaintsPage() {
         complaint.id.toLowerCase().includes(query) ||
         complaint.subject.toLowerCase().includes(query) ||
         complaint.description.toLowerCase().includes(query) ||
-        categoryLabels[complaint.category].toLowerCase().includes(query) ||
+        (categoryLabels[complaint.category ?? ''] ?? complaint.category ?? 'Uncategorized').toLowerCase().includes(query) ||
         statusLabels[complaint.status].toLowerCase().includes(query) ||
         priorityLabels[complaint.priority].toLowerCase().includes(query);
 
@@ -82,6 +92,9 @@ export function UserComplaintsPage() {
           Search and track the status of your submitted complaints.
         </p>
       </div>
+
+      {loading && <p role="status" className="text-sm text-ink-500">Loading complaints…</p>}
+      {loadError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{loadError}</p>}
 
       <div className="card p-4">
         <div className="relative">
@@ -236,7 +249,7 @@ export function UserComplaintsPage() {
                     </td>
 
                     <td className="whitespace-nowrap px-4 py-4 text-sm text-ink-700">
-                      {categoryLabels[complaint.category]}
+                      {categoryLabels[complaint.category ?? ''] ?? complaint.category ?? 'Uncategorized'}
                     </td>
 
                     <td className="whitespace-nowrap px-4 py-4 text-sm">

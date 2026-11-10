@@ -38,7 +38,7 @@ export function ComplaintRow({
         </p>
       </div>
       <div className="hidden w-32 shrink-0 md:block">
-        <span className="text-xs text-ink-500">{categoryLabels[complaint.category]}</span>
+        <span className="text-xs text-ink-500">{categoryLabels[complaint.category ?? ''] ?? complaint.category ?? 'Uncategorized'}</span>
       </div>
       {showPriority && (
         <div className="hidden w-24 shrink-0 lg:block">
