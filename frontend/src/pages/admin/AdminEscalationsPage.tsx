@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, CheckCircle2, MessageSquare, ShieldAlert } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -11,6 +11,7 @@ import {
   getComplaints,
   reviewComplaintEscalation,
 } from '@/services/complaintService';
+import { loadEscalations, submitEscalationReview, USE_REAL_API } from '@/services/api';
 import { useAuth } from '@/pages/auth/authContext';
 
 export function AdminEscalationsPage() {
@@ -25,6 +26,37 @@ export function AdminEscalationsPage() {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+  const [isLoading, setIsLoading] = useState(USE_REAL_API);
+
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    let active = true;
+    loadEscalations(session).then((items) => {
+      if (!active) return;
+      setComplaints(items.map((item) => item.complaint));
+      setUpdates(items.flatMap((item) => [
+        {
+          id: `escalation-${item.complaint.id}`,
+          complaintId: item.complaint.id,
+          status: item.complaint.status,
+          message: `Escalation reason: ${item.reason}`,
+          author: item.submittedBy,
+          timestamp: item.submittedAt,
+        },
+        ...item.reviews.map((review) => ({
+          id: `review-${review.id}`,
+          complaintId: item.complaint.id,
+          status: item.complaint.status,
+          message: `Admin escalation review: ${review.note}`,
+          author: review.reviewedBy,
+          timestamp: review.reviewedAt,
+        })),
+      ]));
+    }).catch((error: unknown) => {
+      setFeedback({ complaintId: '', type: 'error', message: error instanceof Error ? error.message : 'Could not load escalations.' });
+    }).finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, [session]);
 
   const escalated = complaints.filter((c) => c.isEscalated);
 
@@ -37,7 +69,7 @@ export function AdminEscalationsPage() {
     setReviewNotes((prev) => ({ ...prev, [complaintId]: value }));
   };
 
-  const handleSubmitReview = (complaintId: string) => {
+  const handleSubmitReview = async (complaintId: string) => {
     const note = (reviewNotes[complaintId] || '').trim();
     if (!note) {
       setFeedback({
@@ -61,12 +93,22 @@ export function AdminEscalationsPage() {
     setFeedback(null);
 
     try {
-      const result = reviewComplaintEscalation(complaintId, note, session);
+      const result = USE_REAL_API
+        ? await submitEscalationReview(complaintId, note, session)
+        : reviewComplaintEscalation(complaintId, note, session);
 
       if (result.outcome === 'reviewed') {
-        // Refresh local complaint and update states
-        setComplaints(getComplaints());
-        setUpdates(getComplaintUpdates());
+        if (USE_REAL_API) {
+          const items = await loadEscalations(session);
+          setComplaints(items.map((item) => item.complaint));
+          setUpdates(items.flatMap((item) => [
+            { id: `escalation-${item.complaint.id}`, complaintId: item.complaint.id, status: item.complaint.status, message: `Escalation reason: ${item.reason}`, author: item.submittedBy, timestamp: item.submittedAt },
+            ...item.reviews.map((review) => ({ id: `review-${review.id}`, complaintId: item.complaint.id, status: item.complaint.status, message: `Admin escalation review: ${review.note}`, author: review.reviewedBy, timestamp: review.reviewedAt })),
+          ]));
+        } else {
+          setComplaints(getComplaints());
+          setUpdates(getComplaintUpdates());
+        }
         setReviewNotes((prev) => ({ ...prev, [complaintId]: '' }));
         setActiveReviewId(null);
         setFeedback({
@@ -112,7 +154,10 @@ export function AdminEscalationsPage() {
         description="Review and handle complaints that have been escalated by users."
       />
 
-      {escalated.length === 0 ? (
+      {feedback?.complaintId === '' && <p role="alert" className="mb-3 text-sm text-rose-700">{feedback.message}</p>}
+      {isLoading ? (
+        <p role="status" className="text-sm text-ink-500">Loading escalations...</p>
+      ) : escalated.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={<AlertTriangle className="h-6 w-6" />}
@@ -247,7 +292,7 @@ export function AdminEscalationsPage() {
                   {/* Right: actions */}
                   <div className="flex shrink-0 flex-col items-start gap-2 lg:w-48">
                     <StatusBadge status={c.status} />
-                    <span className="text-xs text-ink-400">Assigned: {c.assignedTo ?? 'Unassigned'}</span>
+                    {!USE_REAL_API && <span className="text-xs text-ink-400">Assigned: {c.assignedTo ?? 'Unassigned'}</span>}
 
                     <button
                       type="button"

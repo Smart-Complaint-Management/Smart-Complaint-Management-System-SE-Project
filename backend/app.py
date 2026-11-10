@@ -255,6 +255,44 @@ def complaint_json(row):
         "submittedBy": row["full_name"],
         "submittedAt": submitted_at,
         "updatedAt": changed_at,
+        "isEscalated": bool(row.get("is_escalated", False)),
+    }
+
+
+def iso_timestamp(value):
+    timestamp = value.isoformat() if hasattr(value, "isoformat") else str(value)
+    if " " in timestamp and "T" not in timestamp:
+        timestamp = timestamp.replace(" ", "T", 1)
+    if not timestamp.endswith("Z") and "+" not in timestamp:
+        timestamp += "Z"
+    return timestamp
+
+
+def get_escalation(complaint_id):
+    escalation = db.session.execute(text(
+        "SELECT e.id, c.public_id, e.reason, u.full_name AS submitted_by, e.submitted_at "
+        "FROM complaint_escalations e JOIN complaints c ON c.id = e.complaint_id "
+        "JOIN users u ON u.id = e.user_id WHERE e.complaint_id = :complaint_id"
+    ), {"complaint_id": complaint_id}).mappings().first()
+    if escalation is None:
+        return None
+    reviews = db.session.execute(text(
+        "SELECT r.id, r.note, u.full_name AS reviewed_by, r.reviewed_at "
+        "FROM complaint_escalation_reviews r JOIN users u ON u.id = r.admin_user_id "
+        "WHERE r.escalation_id = :escalation_id ORDER BY r.reviewed_at, r.id"
+    ), {"escalation_id": escalation["id"]}).mappings().all()
+    return {
+        "id": escalation["id"],
+        "complaintId": escalation["public_id"],
+        "reason": escalation["reason"],
+        "submittedBy": escalation["submitted_by"],
+        "submittedAt": iso_timestamp(escalation["submitted_at"]),
+        "reviews": [{
+            "id": review["id"],
+            "note": review["note"],
+            "reviewedBy": review["reviewed_by"],
+            "reviewedAt": iso_timestamp(review["reviewed_at"]),
+        } for review in reviews],
     }
 
 
@@ -286,6 +324,32 @@ def complaint_updates(complaint_id):
             "author": "System" if row["old_status"] is None else "Administrator",
             "timestamp": timestamp,
         })
+    escalation = db.session.execute(text(
+        "SELECT e.id, e.reason, e.submitted_at, u.full_name AS author "
+        "FROM complaint_escalations e JOIN users u ON u.id = e.user_id "
+        "WHERE e.complaint_id = :complaint_id"
+    ), {"complaint_id": complaint_id}).mappings().first()
+    if escalation is not None:
+        updates.append({
+            "id": f"escalation-{escalation['id']}",
+            "status": "submitted",
+            "message": f"Escalation reason: {escalation['reason']}",
+            "author": escalation["author"],
+            "timestamp": iso_timestamp(escalation["submitted_at"]),
+        })
+        reviews = db.session.execute(text(
+            "SELECT r.id, r.note, r.reviewed_at, u.full_name AS author "
+            "FROM complaint_escalation_reviews r JOIN users u ON u.id = r.admin_user_id "
+            "WHERE r.escalation_id = :escalation_id"
+        ), {"escalation_id": escalation["id"]}).mappings().all()
+        updates.extend({
+            "id": f"escalation-review-{review['id']}",
+            "status": "submitted",
+            "message": f"Admin escalation review: {review['note']}",
+            "author": review["author"],
+            "timestamp": iso_timestamp(review["reviewed_at"]),
+        } for review in reviews)
+    updates.sort(key=lambda item: (item["timestamp"], item["id"]))
     return updates
 
 
@@ -350,7 +414,8 @@ def create_complaint():
 
             row = db.session.execute(text(
                 "SELECT c.id, c.public_id, c.title, c.description, c.status, c.priority, "
-                "c.created_at, c.updated_at, u.full_name, cc.name AS category "
+                "c.created_at, c.updated_at, u.full_name, cc.name AS category, "
+                "EXISTS(SELECT 1 FROM complaint_escalations e WHERE e.complaint_id = c.id) AS is_escalated "
                 "FROM complaints c JOIN users u ON u.id = c.user_id "
                 "LEFT JOIN complaint_categories cc ON cc.id = c.category_id WHERE c.id = :id"
             ), {"id": complaint_id}).mappings().one()
@@ -372,7 +437,8 @@ def list_complaints():
     try:
         rows = db.session.execute(text(
             "SELECT c.id, c.public_id, c.title, c.description, c.status, c.priority, "
-            "c.created_at, c.updated_at, u.full_name, cc.name AS category "
+            "c.created_at, c.updated_at, u.full_name, cc.name AS category, "
+            "EXISTS(SELECT 1 FROM complaint_escalations e WHERE e.complaint_id = c.id) AS is_escalated "
             "FROM complaints c JOIN users u ON u.id = c.user_id "
             "LEFT JOIN complaint_categories cc ON cc.id = c.category_id "
             f"{ownership_filter} ORDER BY c.created_at DESC, c.id DESC"
@@ -392,7 +458,8 @@ def get_complaint(public_id):
     try:
         row = db.session.execute(text(
             "SELECT c.id, c.public_id, c.user_id, c.title, c.description, c.status, c.priority, "
-            "c.created_at, c.updated_at, u.full_name, cc.name AS category "
+            "c.created_at, c.updated_at, u.full_name, cc.name AS category, "
+            "EXISTS(SELECT 1 FROM complaint_escalations e WHERE e.complaint_id = c.id) AS is_escalated "
             "FROM complaints c JOIN users u ON u.id = c.user_id "
             "LEFT JOIN complaint_categories cc ON cc.id = c.category_id "
             "WHERE c.public_id = :public_id"
@@ -403,6 +470,7 @@ def get_complaint(public_id):
             return jsonify({"error": "You cannot view this complaint."}), 403
         result = complaint_json(row)
         result["updates"] = complaint_updates(row["id"])
+        result["escalation"] = get_escalation(row["id"])
     except Exception:
         db.session.rollback()
         app.logger.exception("Complaint retrieval failed")
@@ -419,10 +487,10 @@ def get_notifications():
     try:
         rows = db.session.execute(
             text(
-                "SELECT id, complaint_id, event_type, title, message, "
-                "is_read, created_at FROM notifications "
-                "WHERE user_id = :user_id "
-                "ORDER BY created_at DESC, id DESC"
+                "SELECT n.id, c.public_id AS complaint_id, n.event_type, n.title, n.message, "
+                "n.is_read, n.created_at FROM notifications n "
+                "JOIN complaints c ON c.id = n.complaint_id WHERE n.user_id = :user_id "
+                "ORDER BY n.created_at DESC, n.id DESC"
             ),
             {"user_id": user.id},
         ).mappings().all()
@@ -450,6 +518,131 @@ def get_notifications():
         })
 
     return jsonify(notifications), 200
+
+
+@app.route("/complaints/<string:public_id>/escalations", methods=["POST"])
+def submit_escalation(public_id):
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+    if user.role != "user":
+        return jsonify({"error": "Only complaint owners can submit escalations."}), 403
+    payload = request.get_json(silent=True)
+    reason = payload.get("reason") if isinstance(payload, dict) else None
+    if not isinstance(reason, str) or not reason.strip():
+        return jsonify({"error": "An escalation reason is required.", "field": "reason"}), 400
+
+    try:
+        with db.session.begin():
+            lock_clause = " FOR UPDATE" if db.engine.dialect.name == "mysql" else ""
+            complaint = db.session.execute(text(
+                "SELECT id, user_id, status FROM complaints WHERE public_id = :public_id" + lock_clause
+            ), {"public_id": public_id}).mappings().first()
+            if complaint is None:
+                return jsonify({"error": "Complaint not found."}), 404
+            if complaint["user_id"] != user.id:
+                return jsonify({"error": "You cannot escalate this complaint."}), 403
+            if complaint["status"] in {"resolved", "rejected"}:
+                return jsonify({"error": "This complaint is no longer eligible for escalation."}), 409
+            exists = db.session.execute(text(
+                "SELECT id FROM complaint_escalations WHERE complaint_id = :complaint_id"
+            ), {"complaint_id": complaint["id"]}).scalar_one_or_none()
+            if exists is not None:
+                return jsonify({"error": "This complaint has already been escalated."}), 409
+            result = db.session.execute(text(
+                "INSERT INTO complaint_escalations (complaint_id, user_id, reason) "
+                "VALUES (:complaint_id, :user_id, :reason)"
+            ), {"complaint_id": complaint["id"], "user_id": user.id, "reason": reason.strip()})
+            escalation_id = result.lastrowid
+            if db.engine.dialect.name == "sqlite":
+                escalation_id = db.session.execute(text("SELECT last_insert_rowid()")).scalar_one()
+            db.session.execute(text(
+                "INSERT INTO notifications (user_id, complaint_id, event_key, event_type, title, message) "
+                "VALUES (:user_id, :complaint_id, :event_key, 'escalation', :title, :message)"
+            ), {
+                "user_id": user.id,
+                "complaint_id": complaint["id"],
+                "event_key": f"escalation-{escalation_id}",
+                "title": "Complaint escalated",
+                "message": f"Your escalation for {public_id} was submitted: {reason.strip()}",
+            })
+            value = get_escalation(complaint["id"])
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Complaint escalation submission failed")
+        return jsonify({"error": "Could not submit escalation."}), 500
+    return jsonify({"escalation": value}), 201
+
+
+@app.route("/admin/escalations", methods=["GET"])
+def list_escalations():
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+    if user.role != "admin":
+        return jsonify({"error": "Administrator access is required."}), 403
+    try:
+        complaint_ids = db.session.execute(text(
+            "SELECT e.complaint_id FROM complaint_escalations e "
+            "ORDER BY e.submitted_at DESC, e.id DESC"
+        )).scalars().all()
+        items = []
+        for complaint_id in complaint_ids:
+            escalation = get_escalation(complaint_id)
+            complaint = db.session.execute(text(
+                "SELECT c.id, c.public_id, c.title, c.description, c.status, c.priority, "
+                "c.created_at, c.updated_at, u.full_name, cc.name AS category, TRUE AS is_escalated "
+                "FROM complaints c JOIN users u ON u.id = c.user_id "
+                "LEFT JOIN complaint_categories cc ON cc.id = c.category_id WHERE c.id = :id"
+            ), {"id": complaint_id}).mappings().one()
+            items.append({"escalation": escalation, "complaint": complaint_json(complaint)})
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Escalation listing failed")
+        return jsonify({"error": "Could not retrieve escalations."}), 500
+    return jsonify({"items": items}), 200
+
+
+@app.route("/complaints/<string:public_id>/escalation-reviews", methods=["POST"])
+def review_escalation(public_id):
+    user = current_user()
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+    if user.role != "admin":
+        return jsonify({"error": "Administrator access is required."}), 403
+    payload = request.get_json(silent=True)
+    note = payload.get("note") if isinstance(payload, dict) else None
+    if not isinstance(note, str) or not note.strip():
+        return jsonify({"error": "A review note is required.", "field": "note"}), 400
+    try:
+        with db.session.begin():
+            escalation = db.session.execute(text(
+                "SELECT e.id FROM complaint_escalations e JOIN complaints c ON c.id = e.complaint_id "
+                "WHERE c.public_id = :public_id"
+            ), {"public_id": public_id}).mappings().first()
+            if escalation is None:
+                return jsonify({"error": "Escalation not found."}), 404
+            result = db.session.execute(text(
+                "INSERT INTO complaint_escalation_reviews (escalation_id, admin_user_id, note) "
+                "VALUES (:escalation_id, :admin_user_id, :note)"
+            ), {"escalation_id": escalation["id"], "admin_user_id": user.id, "note": note.strip()})
+            review_id = result.lastrowid
+            if db.engine.dialect.name == "sqlite":
+                review_id = db.session.execute(text("SELECT last_insert_rowid()")).scalar_one()
+            review = db.session.execute(text(
+                "SELECT r.id, r.note, r.reviewed_at, u.full_name AS reviewed_by "
+                "FROM complaint_escalation_reviews r JOIN users u ON u.id = r.admin_user_id "
+                "WHERE r.id = :id"
+            ), {"id": review_id}).mappings().one()
+            value = {
+                "id": review["id"], "note": review["note"],
+                "reviewedBy": review["reviewed_by"], "reviewedAt": iso_timestamp(review["reviewed_at"]),
+            }
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Escalation review failed")
+        return jsonify({"error": "Could not record escalation review."}), 500
+    return jsonify({"review": value}), 201
 
 
 @app.route("/complaints/<int:complaint_id>/status", methods=["PATCH"])
@@ -598,41 +791,14 @@ def get_complaint_status(complaint_id: int):
         if user.role != "admin" and complaint["user_id"] != user.id:
             return jsonify({"error": "You cannot view this complaint."}), 403
 
-        rows = db.session.execute(
-            text(
-           "SELECT id, old_status, new_status, changed_at "
-    "FROM complaint_history "
-    "WHERE complaint_id = :complaint_id "
-    "ORDER BY changed_at, id"
-),
-            {"complaint_id": complaint_id},
-        ).mappings().all()
+        updates = complaint_updates(complaint_id)
     except Exception:
         db.session.rollback()
         app.logger.exception("Complaint status retrieval failed")
         return jsonify({"error": "Could not retrieve complaint status."}), 500
 
-    updates = []
-    for row in rows:
-        changed_at = row["changed_at"]
-        timestamp = changed_at.isoformat() if hasattr(changed_at, "isoformat") else str(changed_at)
-        if " " in timestamp and "T" not in timestamp:
-            timestamp = timestamp.replace(" ", "T", 1)
-        if not timestamp.endswith("Z") and "+" not in timestamp:
-            timestamp += "Z"
-        status = row["new_status"]
-        updates.append({
-            "id": str(row["id"]),
-            "complaintId": str(complaint_id),
-            "status": status,
-            "message": (
-                "Complaint resolved and case closed."
-                if status == "resolved"
-                else f"Status changed to {status.replace('_', ' ').title()}."
-            ),
-            "author": "System" if row["old_status"] is None else "Administrator",
-            "timestamp": timestamp,
-        })
+    for update in updates:
+        update["complaintId"] = str(complaint_id)
 
     return jsonify({"status": complaint["status"], "updates": updates}), 200
 

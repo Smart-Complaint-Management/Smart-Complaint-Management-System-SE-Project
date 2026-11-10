@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -20,23 +20,38 @@ import {
 } from '@/services/adminDashboardService';
 import { statusLabels, priorityLabels } from '@/data/mockData';
 import type { Complaint } from '@/types';
+import { useAuth } from '@/pages/auth/authContext';
+import { loadComplaints, USE_REAL_API } from '@/services/api';
 
 export function AdminDashboardPage() {
-  const [complaints, setComplaints] = useState<Complaint[]>(getReportComplaints);
+  const { session } = useAuth();
+  const [complaints, setComplaints] = useState<Complaint[]>(() => USE_REAL_API ? [] : getReportComplaints());
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleRefresh = useCallback(() => {
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    let active = true;
+    loadComplaints(session).then((items) => { if (active) setComplaints(items); })
+      .catch((error: unknown) => { if (active) setLoadError(error instanceof Error ? error.message : 'Could not load complaints.'); });
+    return () => { active = false; };
+  }, [session]);
+
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const fresh = getReportComplaints();
+      const fresh = USE_REAL_API ? await loadComplaints(session) : getReportComplaints();
       setComplaints(fresh);
+      setLoadError('');
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Could not load complaints.');
     } finally {
       setTimeout(() => setIsRefreshing(false), 300);
     }
-  }, []);
+  }, [session]);
 
   // Performance-optimized (SCMS-81): Compute core metrics in a single memoized pass using shared service
   const {
@@ -87,6 +102,8 @@ export function AdminDashboardPage() {
         }
       />
 
+      {loadError && <p role="alert" className="mb-4 text-sm text-rose-700">{loadError}</p>}
+
       {/* Summary Metrics (SCMS-38, SCMS-85) */}
       <AdminMetricCards
         total={total}
@@ -96,7 +113,7 @@ export function AdminDashboardPage() {
       />
 
       {/* Unassigned complaints alert banner (SCMS-34, SCMS-40) */}
-      {unassignedComplaints.length > 0 && (
+      {!USE_REAL_API && unassignedComplaints.length > 0 && (
         <div className="card mt-6 flex items-center gap-4 border-accent-200 bg-accent-50/40 p-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-100 text-accent-700">
             <Inbox className="h-5 w-5" />
@@ -256,7 +273,7 @@ export function AdminDashboardPage() {
             <ComplaintTable
               complaints={filteredComplaints}
               showPriority
-              showAssignedTo
+              showAssignedTo={!USE_REAL_API}
               showEscalation
             />
           )}
@@ -284,7 +301,7 @@ export function AdminDashboardPage() {
             <ComplaintTable
               complaints={recentComplaints}
               showPriority
-              showAssignedTo
+              showAssignedTo={!USE_REAL_API}
               showEscalation
             />
           </div>

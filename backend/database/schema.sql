@@ -119,6 +119,27 @@ CREATE TABLE IF NOT EXISTS complaint_history (
         REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS complaint_escalations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    complaint_id INT NOT NULL UNIQUE,
+    user_id INT NOT NULL,
+    reason TEXT NOT NULL,
+    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS complaint_escalation_reviews (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    escalation_id BIGINT NOT NULL,
+    admin_user_id INT NOT NULL,
+    note TEXT NOT NULL,
+    reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_escalation_reviews_history (escalation_id, reviewed_at, id),
+    FOREIGN KEY (escalation_id) REFERENCES complaint_escalations(id) ON DELETE CASCADE,
+    FOREIGN KEY (admin_user_id) REFERENCES users(id)
+);
+
 -- =========================================
 -- TABLE 6: NOTIFICATIONS
 -- =========================================

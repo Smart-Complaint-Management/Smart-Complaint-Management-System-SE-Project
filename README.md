@@ -272,7 +272,7 @@ No deployment credentials are stored in the repository. The workflow has read-on
 
 ### Backend deployment status and future setup
 
-The backend exposes health checks, authentication, MySQL-backed complaint creation/list/detail routes, status updates, and notification retrieval. Assignment and escalation persistence are not implemented. The frontend keeps `VITE_USE_REAL_API` disabled by default, and no backend service or managed MySQL database is provisioned by this repository. For that reason, this workflow does not publish a backend or claim end-to-end deployment.
+The backend exposes health checks, authentication, MySQL-backed complaint creation/list/detail, status updates, escalation submission/review, and notification retrieval. Assignment persistence remains unimplemented because the frontend targets departments while the current SQL table targets user IDs. The frontend keeps `VITE_USE_REAL_API` disabled by default, and no backend service or managed MySQL database is provisioned by this repository. For that reason, this workflow does not publish a backend or claim end-to-end deployment.
 
 When a real MySQL host and API contract are available, create a Render Web Service for the `backend/` directory, set the `DB_*` variables above and `CORS_ALLOWED_ORIGINS` to the Vercel origin, and use:
 

@@ -6,7 +6,7 @@ import { SummaryMetric } from '@/components/ui/SummaryMetric';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useAuth } from '@/pages/auth/authContext';
 import type { Complaint } from '@/types';
-import { loadComplaints, USE_REAL_API } from '@/services/api';
+import { loadComplaints } from '@/services/api';
 import { formatDate, relativeTime } from '@/services/api';
 
 // Demo data: these counts are derived from the local mock dataset, not from a
@@ -45,11 +45,11 @@ export function UserOverviewPage() {
 
       {/* Metrics row */}
       {loadError && <p role="alert" className="mb-4 text-sm text-rose-700">{loadError}</p>}
-      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${USE_REAL_API ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryMetric label="Total Complaints" value={myComplaints.length} icon={FileText} hint="All complaints you have registered." />
         <SummaryMetric label="Active" value={active.length} icon={Clock} accent="warning" hint="Awaiting resolution or review." />
         <SummaryMetric label="Resolved" value={resolved.length} icon={CheckCircle2} accent="success" hint="Successfully closed complaints." />
-        {!USE_REAL_API && <SummaryMetric label="Escalated" value={escalated.length} icon={AlertTriangle} accent="danger" hint="Complaints you have escalated." />}
+        <SummaryMetric label="Escalated" value={escalated.length} icon={AlertTriangle} accent="danger" hint="Complaints you have escalated." />
       </div>
 
       {/* Recent complaints */}
