@@ -8,10 +8,9 @@ import { ComplaintTimeline } from '@/components/ui/ComplaintTimeline';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/pages/auth/authContext';
 import { categoryLabels } from '@/data/mockData';
-import { formatDateTime, loadComplaint, USE_REAL_API } from '@/services/api';
+import { formatDateTime, loadComplaint, submitEscalation, USE_REAL_API } from '@/services/api';
 
 import {
-  submitComplaintEscalation,
   updateComplaintStatus,
   updateComplaintPriority,
   getPriorityLevels,
@@ -40,8 +39,6 @@ export function ComplaintDetailPage() {
   const [complaintLoading, setComplaintLoading] = useState(true);
   const [complaintLoadError, setComplaintLoadError] = useState('');
   const [updates, setUpdates] = useState<ComplaintUpdate[]>([]);
-  const isDemoComplaint = !complaint?.databaseId;
-
   const [showEscalationForm, setShowEscalationForm] =
     useState(false);
 
@@ -180,7 +177,6 @@ export function ComplaintDetailPage() {
   }
 
   const canEscalate =
-    isDemoComplaint &&
     !isAdmin &&
     !complaint.isEscalated &&
     displayedStatus !== 'resolved' &&
@@ -204,16 +200,11 @@ export function ComplaintDetailPage() {
     setEscalationError('');
 
     try {
-      const result = await Promise.resolve().then(() =>
-        submitComplaintEscalation(
-          id,
-          escalationReason,
-          session,
-        ),
-      );
+      const result = await submitEscalation(id, escalationReason, session, complaint);
 
       if (result.outcome === 'submitted') {
         setEscalationSubmitted(true);
+        setComplaint((current) => current ? { ...current, isEscalated: true } : current);
       } else if (result.outcome === 'invalid_reason') {
         setEscalationError(
           'Please provide a reason for escalation.',

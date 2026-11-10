@@ -41,6 +41,14 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                 event_type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL,
                 is_read BOOLEAN NOT NULL DEFAULT 0,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
+            db.session.execute(text("""CREATE TABLE complaint_escalations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, complaint_id INTEGER NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL, reason TEXT NOT NULL,
+                submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
+            db.session.execute(text("""CREATE TABLE complaint_escalation_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, escalation_id INTEGER NOT NULL,
+                admin_user_id INTEGER NOT NULL, note TEXT NOT NULL,
+                reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
             db.session.execute(text(
                 "INSERT INTO users (id, full_name, email, password_hash, role) VALUES "
                 "(1, 'Test User', 'user@example.test', :hash, 'user'), "
@@ -292,14 +300,14 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         self.login('user@example.test', 'UserPass123')
         own = self.client.get('/notifications?user_id=1')
         self.assertEqual(own.status_code, 200)
-        self.assertEqual([item['complaintId'] for item in own.json], ['1'])
+        self.assertEqual([item['complaintId'] for item in own.json], ['CMP-2026-000001'])
         self.assertEqual([item['type'] for item in own.json], ['status_update'])
 
         self.client.post('/auth/logout', headers={'X-CSRF-Token': self.client.get('/auth/me').json['csrfToken']})
         self.login('admin@example.test', 'AdminPass123')
         admin_own = self.client.get('/notifications')
         self.assertEqual(admin_own.status_code, 200)
-        self.assertEqual([item['complaintId'] for item in admin_own.json], ['2'])
+        self.assertEqual([item['complaintId'] for item in admin_own.json], ['CMP-2026-000002'])
 
     def test_unauthenticated_notification_retrieval_is_rejected(self):
         response = self.client.get('/notifications')
@@ -343,7 +351,7 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         self.assertEqual(response.json['priority'], 'critical')
         self.assertEqual(response.json['submittedBy'], 'Test User')
         self.assertNotIn('assignedTo', response.json)
-        self.assertNotIn('isEscalated', response.json)
+        self.assertFalse(response.json['isEscalated'])
         with app.app_context():
             complaint = db.session.execute(text(
                 'SELECT user_id, public_id, priority FROM complaints WHERE id=3'
@@ -418,6 +426,91 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
         with app.app_context():
             self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaints')).scalar(), 2)
             self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_history')).scalar(), 0)
+
+    def test_escalation_requires_authentication_csrf_ownership_and_valid_reason(self):
+        self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalations', json={'reason': 'late'}).status_code, 401)
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalations', json={'reason': 'late'}).status_code, 403)
+        headers = {'X-CSRF-Token': token}
+        self.assertEqual(self.client.post('/complaints/CMP-2026-000002/escalations', json={'reason': 'late'}, headers=headers).status_code, 403)
+        for payload in ({}, {'reason': '  '}, {'reason': 5}):
+            self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalations', json=payload, headers=headers).status_code, 400)
+        self.assertEqual(self.client.post('/complaints/CMP-2026-999999/escalations', json={'reason': 'late'}, headers=headers).status_code, 404)
+
+    def test_escalation_persists_once_and_notifies_owner_transactionally(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        response = self.client.post('/complaints/CMP-2026-000001/escalations',
+                                    json={'reason': 'No response yet'},
+                                    headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json['escalation']['reason'], 'No response yet')
+        self.assertEqual(self.notifications(1)[0][1], 'escalation')
+        self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalations',
+                                          json={'reason': 'again'}, headers={'X-CSRF-Token': token}).status_code, 409)
+        self.assertEqual(self.client.get('/complaints/CMP-2026-000001').json['isEscalated'], True)
+        self.assertEqual(len(self.client.get('/complaints/CMP-2026-000001').json['updates']), 1)
+
+    def test_escalation_is_rejected_for_resolved_and_rejected_complaints(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        for status in ('resolved', 'rejected'):
+            with app.app_context():
+                db.session.execute(text('UPDATE complaints SET status=:status WHERE id=1'), {'status': status})
+                db.session.commit()
+            response = self.client.post('/complaints/CMP-2026-000001/escalations',
+                                        json={'reason': 'Please review'},
+                                        headers={'X-CSRF-Token': token})
+            self.assertEqual(response.status_code, 409)
+            with app.app_context():
+                self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_escalations')).scalar(), 0)
+
+    def test_escalation_rolls_back_when_notification_insert_fails(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        with app.app_context():
+            db.session.execute(text("""CREATE TRIGGER fail_escalation_notification
+                BEFORE INSERT ON notifications BEGIN
+                SELECT RAISE(ABORT, 'notification insert failed'); END"""))
+            db.session.commit()
+        response = self.client.post('/complaints/CMP-2026-000001/escalations',
+                                    json={'reason': 'No response'},
+                                    headers={'X-CSRF-Token': token})
+        self.assertEqual(response.status_code, 500)
+        with app.app_context():
+            self.assertEqual(db.session.execute(text('SELECT COUNT(*) FROM complaint_escalations')).scalar(), 0)
+        self.assertEqual(self.notifications(), [])
+
+    def test_admin_escalation_list_and_review_are_authorized_and_append_only(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        self.client.post('/complaints/CMP-2026-000001/escalations', json={'reason': 'Please review'},
+                         headers={'X-CSRF-Token': token})
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': token})
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        self.assertEqual(self.client.get('/admin/escalations').status_code, 200)
+        headers = {'X-CSRF-Token': token}
+        self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalation-reviews', json={'note': ' '}, headers=headers).status_code, 400)
+        for note in ('Triage started', 'Follow-up completed'):
+            self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalation-reviews', json={'note': note}, headers=headers).status_code, 201)
+        detail = self.client.get('/complaints/CMP-2026-000001')
+        self.assertEqual([r['note'] for r in detail.json['escalation']['reviews']], ['Triage started', 'Follow-up completed'])
+        self.assertEqual(detail.json['status'], 'submitted')
+
+    def test_escalation_reviews_reject_non_admin_and_review_notify_is_not_added(self):
+        self.login('user@example.test', 'UserPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        self.client.post('/complaints/CMP-2026-000001/escalations', json={'reason': 'Please review'},
+                         headers={'X-CSRF-Token': token})
+        self.assertEqual(self.client.get('/admin/escalations').status_code, 403)
+        self.assertEqual(self.client.post('/complaints/CMP-2026-000001/escalation-reviews', json={'note': 'no'}, headers={'X-CSRF-Token': token}).status_code, 403)
+        self.client.post('/auth/logout', headers={'X-CSRF-Token': token})
+        self.login('admin@example.test', 'AdminPass123')
+        token = self.client.get('/auth/me').json['csrfToken']
+        self.client.post('/complaints/CMP-2026-000001/escalation-reviews', json={'note': 'Recorded'}, headers={'X-CSRF-Token': token})
+        self.assertEqual(len(self.notifications(1)), 1)
 
 
 if __name__ == '__main__':

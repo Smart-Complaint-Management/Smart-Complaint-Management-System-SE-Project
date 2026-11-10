@@ -58,6 +58,22 @@ export interface ComplaintUpdate {
   timestamp: string;
 }
 
+export interface EscalationReview {
+  id: number;
+  note: string;
+  reviewedBy: string;
+  reviewedAt: string;
+}
+
+export interface ComplaintEscalation {
+  id: number;
+  complaintId: string;
+  reason: string;
+  submittedBy: string;
+  submittedAt: string;
+  reviews: EscalationReview[];
+}
+
 export type NotificationType =
   | 'status_update'
   | 'assignment'

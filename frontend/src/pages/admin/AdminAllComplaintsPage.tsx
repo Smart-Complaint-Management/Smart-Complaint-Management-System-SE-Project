@@ -298,7 +298,7 @@ export function AdminAllComplaintsPage() {
               complaints={filtered}
               showPriority
               showAssignedTo={!USE_REAL_API}
-              showEscalation={!USE_REAL_API}
+              showEscalation
               showDuplicateInfo={!USE_REAL_API}
             />
           </>

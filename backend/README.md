@@ -2,7 +2,7 @@
 
 ## Overview
 
-This backend provides Flask authentication, MySQL-backed complaint creation/retrieval, administrator-only status updates, and user-scoped notifications.
+This backend provides Flask authentication, persistent complaint workflows, administrator-only status updates, persistent user escalations and reviews, and user-scoped notifications.
 
 ## Technologies Used
 
@@ -99,6 +99,7 @@ For an existing database, take a normal database backup and apply the migrations
 mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V2__authentication_and_statuses.sql
 mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V3__notifications.sql
 mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V4__persistent_complaints.sql
+mysql -u YOUR_DB_USER -p smart_complaint_db < backend/database/migrations/V5__persistent_escalations.sql
 ```
 
 The migration retains all complaint and history rows. Existing `pending` complaint records become `submitted`; old history strings remain intact. Existing `staff` accounts are mapped to the SRS `user` role before the role column is narrowed to `user` and `admin`. For a new database, use `backend/database/schema.sql` instead.
@@ -119,6 +120,9 @@ Use a unique random `SECRET_KEY` for each deployment (for example, generate one 
 | `/complaints` | POST | Create a complaint for the authenticated account; records the initial submitted history event transactionally |
 | `/complaints` | GET | List complaints owned by the user, or all complaints for an administrator |
 | `/complaints/<public-id>` | GET | Retrieve complaint details and status history; owner or administrator access |
+| `/complaints/<public-id>/escalations` | POST | Submit one escalation for an owned, non-resolved, non-rejected complaint; requires `{ "reason": "..." }` and CSRF |
+| `/admin/escalations` | GET | List escalations and their append-only review history; administrator only |
+| `/complaints/<public-id>/escalation-reviews` | POST | Append an administrative review note; requires `{ "note": "..." }` and CSRF |
 | `/complaints/<id>/status` | PATCH | Administrator-only complaint status update |
 | `/notifications` | GET | Return notifications for the authenticated account |
 
@@ -128,6 +132,8 @@ The signed HttpOnly cookie contains an opaque session ID. Each request validates
 
 Each successful database status transition writes a notification for the complaint owner in the same transaction as the status and history update. A transition to `resolved` creates a `resolution` notification; other transitions create `status_update` notifications. Unchanged or failed status requests do not create notifications. `GET /notifications` requires the existing authenticated session and selects by its server-verified user ID; it accepts no recipient ID from the client.
 
+Escalations follow the existing frontend workflow: one required-reason submission per complaint, disallowed after `resolved` or `rejected`; administrator review notes are required and append-only, may be repeated, and do not change complaint status. Submission and its user notification commit together. Review notes do not create a notification because the existing workflow does not notify on review. Notification `complaintId` values are stable public IDs.
+
 ## Database Tables
 
 1. users
@@ -136,7 +142,9 @@ Each successful database status transition writes a notification for the complai
 4. complaints
 5. complaint_assignments
 6. complaint_history
-7. notifications
+7. complaint_escalations
+8. complaint_escalation_reviews
+9. notifications
 
 ## Security Notes
 
@@ -147,4 +155,4 @@ Each successful database status transition writes a notification for the complai
 
 ## Current Scope
 
-Complaint creation, listing, and detail retrieval are available through authenticated MySQL endpoints. Public tracking IDs use `CMP-YYYY-NNNNNN`; integer database IDs remain in place for the existing status endpoints. Local demo data remains available when `VITE_USE_REAL_API` is not enabled. Escalation and assignment persistence are not implemented; their existing frontend demo workflows continue to use browser storage. Status updates and status notifications persist only for database-backed complaints.
+Complaint creation, listing, detail retrieval, status updates, escalation submission/review, and status/escalation notifications are available through authenticated MySQL endpoints. Public tracking IDs use `CMP-YYYY-NNNNNN`; integer database IDs remain in place for the existing status endpoints. Local demo data remains available when `VITE_USE_REAL_API` is not enabled. Assignment persistence remains unimplemented because the approved UI targets departments while the current SQL table targets user IDs; no mapping has been approved. No migrations are run by the application.

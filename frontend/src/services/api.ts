@@ -15,10 +15,10 @@
 // functions exported from this module so the swap to the real backend is
 // transparent.
 
-import type { AppNotification, Complaint } from '@/types';
+import type { AppNotification, Complaint, EscalationReview } from '@/types';
 import { getMyNotifications } from '@/services/complaintService';
-import { getComplaint as getLocalComplaint, getComplaintUpdates, getComplaints as getLocalComplaints, getMyComplaints, createComplaint as createLocalComplaint } from '@/services/complaintService';
-import { createComplaintRequest, getComplaintRequest, listComplaintsRequest } from '@/services/authApi';
+import { getComplaint as getLocalComplaint, getComplaintUpdates, getComplaints as getLocalComplaints, getMyComplaints, createComplaint as createLocalComplaint, submitComplaintEscalation, reviewComplaintEscalation } from '@/services/complaintService';
+import { createComplaintRequest, getComplaintRequest, listComplaintsRequest, submitEscalationRequest, listEscalationsRequest, reviewEscalationRequest } from '@/services/authApi';
 import type { NewComplaintInput } from '@/services/complaintService';
 import type { AuthSession } from '@/pages/auth/authContext';
 
@@ -82,6 +82,75 @@ export async function loadComplaint(id: string, session: AuthSession | null) {
     complaint,
     updates: getComplaintUpdates().filter((update) => update.complaintId === id),
   };
+}
+
+export interface EscalationView {
+  complaint: Complaint;
+  reason: string;
+  submittedBy: string;
+  submittedAt: string;
+  reviews: EscalationReview[];
+}
+
+export async function loadEscalations(session: AuthSession | null): Promise<EscalationView[]> {
+  if (session?.role !== 'admin') return [];
+  if (USE_REAL_API) {
+    const items = await listEscalationsRequest();
+    return items.map(({ complaint: backendComplaint, escalation }) => ({
+      complaint: {
+        id: backendComplaint.id,
+        databaseId: backendComplaint.databaseId,
+        subject: backendComplaint.title,
+        description: backendComplaint.description,
+        category: backendComplaint.category,
+        priority: backendComplaint.priority,
+        status: backendComplaint.status,
+        submittedBy: backendComplaint.submittedBy,
+        submittedAt: backendComplaint.submittedAt,
+        updatedAt: backendComplaint.updatedAt,
+        isEscalated: true,
+      },
+      reason: escalation.reason,
+      submittedBy: escalation.submittedBy,
+      submittedAt: escalation.submittedAt,
+      reviews: escalation.reviews,
+    }));
+  }
+  const complaints = getLocalComplaints().filter((complaint) => complaint.isEscalated);
+  const updates = getComplaintUpdates();
+  return complaints.map((complaint) => {
+    const related = updates.filter((update) => update.complaintId === complaint.id);
+    const submission = related.find((update) => update.message.startsWith('Escalation reason:'));
+    const reviews = related.filter((update) => update.message.startsWith('Admin escalation review:'));
+    return {
+      complaint,
+      reason: submission?.message.replace(/^Escalation reason:\s*/, '') ?? '',
+      submittedBy: submission?.author ?? complaint.submittedBy,
+      submittedAt: submission?.timestamp ?? complaint.updatedAt,
+      reviews: reviews.map((review, index) => ({
+        id: index + 1,
+        note: review.message.replace(/^Admin escalation review:\s*/, ''),
+        reviewedBy: review.author,
+        reviewedAt: review.timestamp,
+      })),
+    };
+  });
+}
+
+export async function submitEscalation(id: string, reason: string, session: AuthSession | null, complaint: Complaint) {
+  if (USE_REAL_API && complaint.databaseId) {
+    const escalation = await submitEscalationRequest(id, reason);
+    return { outcome: 'submitted' as const, escalation };
+  }
+  return submitComplaintEscalation(id, reason, session);
+}
+
+export async function submitEscalationReview(id: string, note: string, session: AuthSession | null) {
+  if (USE_REAL_API) {
+    const review = await reviewEscalationRequest(id, note);
+    return { outcome: 'reviewed' as const, review };
+  }
+  return reviewComplaintEscalation(id, note, session);
 }
 
 export function submitComplaint(input: NewComplaintInput): Promise<Complaint> {

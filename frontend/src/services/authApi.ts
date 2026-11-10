@@ -1,5 +1,5 @@
 import type { UserRole } from '@/types';
-import type { Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus, ComplaintUpdate } from '@/types';
+import type { Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus, ComplaintUpdate, ComplaintEscalation, EscalationReview } from '@/types';
 
 const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
 const base = configuredBase ?? (import.meta.env.DEV ? 'http://localhost:5000' : '');
@@ -17,7 +17,13 @@ export interface BackendComplaint {
   submittedBy: string;
   submittedAt: string;
   updatedAt: string;
+  isEscalated?: boolean;
   updates?: Omit<ComplaintUpdate, 'complaintId'>[];
+  escalation?: ComplaintEscalation | null;
+}
+export interface BackendEscalationItem {
+  escalation: ComplaintEscalation;
+  complaint: BackendComplaint;
 }
 async function request(path: string, init: RequestInit = {}) {
   if (!base) {
@@ -55,6 +61,7 @@ function toComplaint(data: BackendComplaint): Complaint {
     submittedBy: data.submittedBy,
     submittedAt: data.submittedAt,
     updatedAt: data.updatedAt,
+    isEscalated: data.isEscalated ?? false,
   };
 }
 export async function createComplaintRequest(input: {
@@ -72,7 +79,24 @@ export async function getComplaintRequest(id: string) {
   return {
     complaint: toComplaint(data),
     updates: (data.updates ?? []).map((update) => ({ ...update, complaintId: data.id })),
+    escalation: data.escalation ?? null,
   };
+}
+export async function submitEscalationRequest(publicId: string, reason: string) {
+  const data = await request(`/complaints/${encodeURIComponent(publicId)}/escalations`, {
+    method: 'POST', body: JSON.stringify({ reason }),
+  }) as unknown as { escalation: ComplaintEscalation };
+  return data.escalation;
+}
+export async function listEscalationsRequest() {
+  const data = await request('/admin/escalations') as unknown as { items: BackendEscalationItem[] };
+  return data.items;
+}
+export async function reviewEscalationRequest(publicId: string, note: string) {
+  const data = await request(`/complaints/${encodeURIComponent(publicId)}/escalation-reviews`, {
+    method: 'POST', body: JSON.stringify({ note }),
+  }) as unknown as { review: EscalationReview };
+  return data.review;
 }
 export async function logoutRequest() { await request('/auth/logout', { method: 'POST' }); csrfToken = ''; }
 export async function getComplaintStatus(id: string) {
