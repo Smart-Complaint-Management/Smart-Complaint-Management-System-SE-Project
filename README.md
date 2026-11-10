@@ -232,7 +232,7 @@ Vercel's Hobby plan is free for personal projects. Check its current terms and u
 
 ### Frontend environment
 
-`VITE_API_BASE_URL` is optional. Local development defaults to `http://localhost:5000/api`; production defaults to the same-origin `/api` path. The frontend currently uses mock data (`USE_REAL_API = false`), so setting this value alone does not connect it to Flask. Set it to the deployed API base URL only after matching API endpoints exist and the real API implementation is enabled.
+`VITE_API_BASE_URL` is required for a production build that uses authentication and must be the backend origin (for example, `https://api.example.com`), not the Vercel frontend origin and not a `/api` suffix. Local development defaults to `http://localhost:5000`. The frontend currently uses mock data for complaint features (`USE_REAL_API = false`), but authentication always calls Flask. Set this value only after the backend is deployed and its authentication endpoints are reachable.
 
 For local setup, copy `frontend/.env.example` to `frontend/.env.local` and change the value if needed. Do not put secrets in `VITE_*` variables: Vite embeds them in public browser assets.
 
@@ -287,5 +287,4 @@ Render's free web services can sleep after inactivity and take time to wake. Ren
 ### Deployed app the link below:
 
 https://smart-complaint-management-system-s.vercel.app/
-
 

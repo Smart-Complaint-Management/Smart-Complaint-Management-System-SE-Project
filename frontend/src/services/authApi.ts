@@ -1,12 +1,15 @@
 import type { UserRole } from '@/types';
 import type { ComplaintStatus, ComplaintUpdate } from '@/types';
 
-const base = import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? 'http://localhost:5000' : '/api');
+const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
+const base = configuredBase ?? (import.meta.env.DEV ? 'http://localhost:5000' : '');
 let csrfToken = '';
 
 export interface BackendUser { id: number; email: string; fullName: string; role: UserRole }
 async function request(path: string, init: RequestInit = {}) {
+  if (!base) {
+    throw new Error('The backend service is not configured for this deployment.');
+  }
   let response: Response;
   try {
     response = await fetch(`${base}${path}`, {
