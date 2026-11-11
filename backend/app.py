@@ -68,6 +68,12 @@ def protect_cookie_mutations():
             return jsonify({"error": "CSRF validation failed."}), 403
 
 
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        return "", 204
+
+
 @app.after_request
 def add_cors_headers(response):
     allowed_origins = {
