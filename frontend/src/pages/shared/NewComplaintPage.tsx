@@ -141,47 +141,51 @@ export function NewComplaintPage() {
     }));
   };
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSubmitError('');
+ 
+const handleSubmit = async (event: FormEvent) => {
+  event.preventDefault();
+  setSubmitError('');
 
-    if (!session) {
-      setSubmitError(
-        'Please sign in again before submitting a complaint.',
-      );
-      return;
-    }
+  if (!session) {
+    setSubmitError('Please sign in again before submitting a complaint.');
+    return;
+  }
 
-    const validationErrors = validateComplaint(form);
-    setErrors(validationErrors);
+  const validationErrors = validateComplaint(form);
+  setErrors(validationErrors);
 
-    if (
-      Object.keys(validationErrors).length > 0 ||
-      form.category === ''
-    ) {
-      return;
-    }
+  if (Object.keys(validationErrors).length > 0 || !form.category) {
+    return;
+  }
 
-    setSubmitting(true);
+  setSubmitting(true);
 
-    try {
-      const created = await submitComplaint({
-        subject: form.subject,
-        category: form.category,
-        priority: suggestedPriority,
-        description: form.description,
-        submittedBy: session.fullName,
-      });
+  try {
+    console.log('Submitting complaint to backend...');
 
-      setCreatedId(created.id);
-    } catch {
-      setSubmitError(
-        'Could not submit your complaint. Please try again.',
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    const created = await submitComplaint({
+      subject: form.subject.trim(),
+      category: form.category,
+      priority: suggestedPriority,
+      description: form.description.trim(),
+      submittedBy: session.fullName,
+    });
+
+    console.log('Complaint successfully created:', created);
+
+    setCreatedId(created.id);
+  } catch (error) {
+    console.error('Complaint submission failed:', error);
+
+    setSubmitError(
+      error instanceof Error
+        ? error.message
+        : 'Unknown error while submitting complaint.'
+    );
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const inputClass = (hasError: boolean) =>
     `input mt-1.5 ${hasError ? 'border-rose-400' : ''}`;
@@ -458,11 +462,6 @@ export function NewComplaintPage() {
             </p>
           )}
 
-          <p className="rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-400">
-            This demo currently stores complaints in shared in-memory
-            data. Persistent storage across page refreshes requires
-            browser storage or a backend.
-          </p>
 
           <div className="flex justify-end gap-2 border-t border-ink-100 pt-4">
             <button
