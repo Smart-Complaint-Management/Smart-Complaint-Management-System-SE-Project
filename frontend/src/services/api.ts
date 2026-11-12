@@ -234,6 +234,10 @@ export async function submitEscalationReview(
 export function submitComplaint(
   input: NewComplaintInput,
 ): Promise<Complaint> {
+  console.log('USE_REAL_API:', USE_REAL_API);
+  console.log('PROD:', import.meta.env.PROD);
+  console.log('API URL:', import.meta.env.VITE_API_BASE_URL);
+  
   if (!USE_REAL_API) {
     return createLocalComplaint(input);
   }
