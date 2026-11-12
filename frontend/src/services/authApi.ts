@@ -67,9 +67,9 @@ async function request<T = any>(
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
         ...init.headers,
-      },
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+},
     });
   } catch {
     throw new Error(
@@ -101,8 +101,17 @@ async function request<T = any>(
   return data as T;
 }
 
+
 export async function fetchCurrentUser() {
-  const data = await request<{ user?: BackendUser | null }>('/auth/me');
+  const data = await request<{
+    user?: BackendUser | null;
+    csrfToken?: string;
+  }>('/auth/me');
+
+  if (data.csrfToken) {
+    csrfToken = data.csrfToken;
+  }
+
   return data.user ?? null;
 }
 
