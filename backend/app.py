@@ -645,6 +645,57 @@ def list_escalations():
     return jsonify({"items": items}), 200
 
 
+@app.route("/complaints/<string:public_id>/escalation-reviews", methods=["POST"])
+def add_escalation_review(public_id):
+    user = current_user()
+
+    if user is None:
+        return jsonify({"error": "Authentication is required."}), 401
+
+    if user.role != "admin":
+        return jsonify({"error": "Administrator access is required."}), 403
+
+    payload = request.get_json(silent=True)
+    note = payload.get("note") if isinstance(payload, dict) else None
+
+    if not isinstance(note, str) or not note.strip():
+        return jsonify({"error": "A review note is required.", "field": "note"}), 400
+
+    try:
+        with db.session.begin():
+            lock_clause = " FOR UPDATE" if db.engine.dialect.name == "mysql" else ""
+
+            escalation = db.session.execute(text(
+                "SELECT e.id, e.complaint_id "
+                "FROM complaint_escalations e "
+                "JOIN complaints c ON c.id = e.complaint_id "
+                "WHERE c.public_id = :public_id" + lock_clause
+            ), {"public_id": public_id}).mappings().first()
+
+            if escalation is None:
+                return jsonify({"error": "Escalation not found."}), 404
+
+            db.session.execute(text(
+                "INSERT INTO complaint_escalation_reviews "
+                "(escalation_id, admin_user_id, note) "
+                "VALUES (:escalation_id, :admin_user_id, :note)"
+            ), {
+                "escalation_id": escalation["id"],
+                "admin_user_id": user.id,
+                "note": note.strip(),
+            })
+
+            result = get_escalation(escalation["complaint_id"])
+
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Escalation review failed")
+        return jsonify({"error": "Could not record escalation review."}), 500
+
+    return jsonify({"escalation": result}), 201
+
+
+
 
 @app.route("/complaints/<string:public_id>/duplicate-review", methods=["POST"])
 def review_duplicate(public_id):
