@@ -51,7 +51,7 @@ export interface BackendEscalationItem {
   complaint: BackendComplaint;
 }
 
-async function request<T = any>(
+async function request<T = unknown>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {

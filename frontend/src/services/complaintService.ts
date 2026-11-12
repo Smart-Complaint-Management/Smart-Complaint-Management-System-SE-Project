@@ -1,7 +1,6 @@
 import {
   mockComplaints,
   mockNotifications,
-  mockUpdates,
   statusLabels,
 } from '@/data/mockData';
 
@@ -44,7 +43,6 @@ export interface NewComplaintInput {
 }
 
 const STORAGE_KEY = 'scms_complaints';
-const UPDATES_STORAGE_KEY = 'scms_complaint_updates';
 const NOTIFICATIONS_STORAGE_KEY = 'scms_notifications';
 
 function isBrowser(): boolean {
@@ -198,31 +196,6 @@ function readComplaints(): Complaint[] {
 }
 
 /**
- * Load complaint timeline updates.
- */
-function readUpdates(): ComplaintUpdate[] {
-  if (!isBrowser()) {
-    return mockUpdates;
-  }
-
-  try {
-    const saved = window.localStorage.getItem(UPDATES_STORAGE_KEY);
-
-    if (saved !== null) {
-      const parsed: unknown = JSON.parse(saved);
-
-      if (Array.isArray(parsed)) {
-        return parsed as ComplaintUpdate[];
-      }
-    }
-  } catch (error) {
-    console.error('Unable to load complaint updates:', error);
-  }
-
-  return mockUpdates;
-}
-
-/**
  * Load notifications.
  */
 function readNotifications(): AppNotification[] {
@@ -245,23 +218,6 @@ function readNotifications(): AppNotification[] {
   }
 
   return mockNotifications;
-}
-
-/**
- * Generate the next complaint ID.
- */
-function nextComplaintId(): string {
-  const year = new Date().getFullYear();
-
-  const highest = readComplaints().reduce((max, complaint) => {
-    const match = /^CMP-\d{4}-(\d+)$/.exec(complaint.id);
-
-    return match
-      ? Math.max(max, Number(match[1]))
-      : max;
-  }, 0);
-
-  return `CMP-${year}-${String(highest + 1).padStart(3, '0')}`;
 }
 
 /**

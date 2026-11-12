@@ -7,7 +7,6 @@ import {
   LEGACY_AUDIT_KEY,
   MIGRATION_FLAG_KEY,
 } from './dataMigrationService';
-import { getComplaints } from './complaintService';
 import type { Complaint } from '@/types';
 import type { AdminAuditEvent } from '@/types/admin';
 
