@@ -150,8 +150,8 @@ function toComplaint(data: BackendComplaint): Complaint {
     isEscalated: data.isEscalated ?? false,
     possibleDuplicateId: data.possibleDuplicateId ?? null,
     duplicateReviewStatus: data.duplicateReviewStatus ?? 'pending',
-    duplicateReviewedBy: data.duplicateReviewedBy ?? null,
-    duplicateReviewedAt: data.duplicateReviewedAt ?? null,
+    duplicateReviewedBy: data.duplicateReviewedBy ?? undefined,
+    duplicateReviewedAt: data.duplicateReviewedAt ?? undefined,
   };
 }
 

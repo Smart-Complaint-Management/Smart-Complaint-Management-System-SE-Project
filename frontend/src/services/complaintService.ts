@@ -9,7 +9,6 @@ import {
   createComplaintRequest,
   listComplaintsRequest,
   getComplaintRequest,
-  listNotificationsRequest,
   patchComplaintStatus,
   submitEscalationRequest,
   reviewEscalationRequest,
@@ -35,7 +34,6 @@ import {
 } from './adminAuditService';
 
 import { migrateComplaintData } from './dataMigrationService';
-import { findPotentialDuplicates } from './duplicateDetectionService';
 
 export interface NewComplaintInput {
   subject: string;

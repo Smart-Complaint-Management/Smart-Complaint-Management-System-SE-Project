@@ -255,12 +255,12 @@ export function ComplaintDetailPage() {
 
     try {
       if (!complaint.databaseId) {
-        const result = updateComplaintStatus(
-          id,
-          pendingStatus,
-          session.fullName,
-          session,
-        );
+        const result = await updateComplaintStatus(
+            id,
+            pendingStatus,
+            session.fullName,
+            session,
+);
 
         if (result.outcome === 'unauthorized') {
           setStatusMessage(

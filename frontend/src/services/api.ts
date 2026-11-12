@@ -28,8 +28,8 @@ import type { AuthSession } from '@/pages/auth/authContext';
 
 // Production always uses the real Flask + MySQL backend.
 // Local development can enable it using VITE_USE_REAL_API=true.
-const USE_REAL_API =
-  import.meta.env.PROD || import.meta.env.VITE_USE_REAL_API === 'true';
+  const USE_REAL_API =
+    import.meta.env.PROD || import.meta.env.VITE_USE_REAL_API === 'true';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
@@ -100,7 +100,7 @@ export async function loadComplaint(
     return getComplaintRequest(id);
   }
 
-  const complaint = getLocalComplaint(id);
+  const complaint = await getLocalComplaint(id);
 
   if (
     !complaint ||
@@ -110,11 +110,11 @@ export async function loadComplaint(
     return null;
   }
 
+  const updates = await getComplaintUpdates();
+
   return {
     complaint,
-    updates: getComplaintUpdates().filter(
-      (update) => update.complaintId === id,
-    ),
+    updates: updates.filter((update) => update.complaintId === id),
   };
 }
 
@@ -157,11 +157,14 @@ export async function loadEscalations(
     }));
   }
 
-  const complaints = getLocalComplaints().filter(
+  const [allComplaints, updates] = await Promise.all([
+    getLocalComplaints(),
+    getComplaintUpdates(),
+  ]);
+
+  const complaints = allComplaints.filter(
     (complaint) => complaint.isEscalated,
   );
-
-  const updates = getComplaintUpdates();
 
   return complaints.map((complaint) => {
     const related = updates.filter(
@@ -172,8 +175,8 @@ export async function loadEscalations(
       update.message.startsWith('Escalation reason:'),
     );
 
-    const reviews = related.filter((update) =>
-      update.message.startsWith('Admin escalation review:'),
+    const reviews = related.filter((review) =>
+      review.message.startsWith('Admin escalation review:'),
     );
 
     return {

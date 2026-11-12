@@ -141,46 +141,55 @@ export function NewComplaintPage() {
     }));
   };
 
- 
-const handleSubmit = async (event: FormEvent) => {
+ const handleSubmit = async (event: FormEvent) => {
   event.preventDefault();
+  console.log('1. SUBMIT BUTTON CLICKED');
+
   setSubmitError('');
 
   if (!session) {
+    console.log('2. SESSION IS MISSING');
     setSubmitError('Please sign in again before submitting a complaint.');
     return;
   }
 
+  console.log('2. SESSION FOUND:', session);
+
   const validationErrors = validateComplaint(form);
+  console.log('3. VALIDATION ERRORS:', validationErrors);
+
   setErrors(validationErrors);
 
-  if (Object.keys(validationErrors).length > 0 || !form.category) {
+  if (
+    Object.keys(validationErrors).length > 0 ||
+    form.category === ''
+  ) {
+    console.log('4. VALIDATION BLOCKED SUBMISSION');
     return;
   }
 
   setSubmitting(true);
 
   try {
-    console.log('Submitting complaint to backend...');
+    console.log('5. CALLING BACKEND:', form);
 
     const created = await submitComplaint({
-      subject: form.subject.trim(),
+      subject: form.subject,
       category: form.category,
       priority: suggestedPriority,
-      description: form.description.trim(),
+      description: form.description,
       submittedBy: session.fullName,
     });
 
-    console.log('Complaint successfully created:', created);
-
+    console.log('6. COMPLAINT CREATED:', created);
     setCreatedId(created.id);
   } catch (error) {
-    console.error('Complaint submission failed:', error);
+    console.error('COMPLAINT SUBMISSION FAILED:', error);
 
     setSubmitError(
       error instanceof Error
         ? error.message
-        : 'Unknown error while submitting complaint.'
+        : 'Could not submit your complaint. Please try again.',
     );
   } finally {
     setSubmitting(false);

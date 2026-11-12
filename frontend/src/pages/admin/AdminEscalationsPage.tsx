@@ -1,6 +1,14 @@
+
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, CheckCircle2, MessageSquare, ShieldAlert } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  MessageSquare,
+  ShieldAlert,
+} from 'lucide-react';
+
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -11,13 +19,19 @@ import {
   getComplaints,
   reviewComplaintEscalation,
 } from '@/services/complaintService';
-import { loadEscalations, submitEscalationReview, USE_REAL_API } from '@/services/api';
+import {
+  loadEscalations,
+  submitEscalationReview,
+  USE_REAL_API,
+} from '@/services/api';
+import type { Complaint, ComplaintUpdate } from '@/types';
 import { useAuth } from '@/pages/auth/authContext';
 
 export function AdminEscalationsPage() {
   const { session } = useAuth();
-  const [complaints, setComplaints] = useState(() => getComplaints());
-  const [updates, setUpdates] = useState(() => getComplaintUpdates());
+
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [updates, setUpdates] = useState<ComplaintUpdate[]>([]);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<Record<string, boolean>>({});
@@ -26,42 +40,80 @@ export function AdminEscalationsPage() {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [isLoading, setIsLoading] = useState(USE_REAL_API);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const refreshData = async () => {
+    if (USE_REAL_API) {
+      const items = await loadEscalations(session);
+
+      setComplaints(items.map((item) => item.complaint));
+
+      setUpdates(
+        items.flatMap((item) => [
+          {
+            id: `escalation-${item.complaint.id}`,
+            complaintId: item.complaint.id,
+            status: item.complaint.status,
+            message: `Escalation reason: ${item.reason}`,
+            author: item.submittedBy,
+            timestamp: item.submittedAt,
+          },
+          ...item.reviews.map((review) => ({
+            id: `review-${review.id}`,
+            complaintId: item.complaint.id,
+            status: item.complaint.status,
+            message: `Admin escalation review: ${review.note}`,
+            author: review.reviewedBy,
+            timestamp: review.reviewedAt,
+          })),
+        ]),
+      );
+    } else {
+      const [complaintItems, updateItems] = await Promise.all([
+        getComplaints(),
+        getComplaintUpdates(),
+      ]);
+
+      setComplaints(complaintItems);
+      setUpdates(updateItems);
+    }
+  };
 
   useEffect(() => {
-    if (!USE_REAL_API) return;
     let active = true;
-    loadEscalations(session).then((items) => {
-      if (!active) return;
-      setComplaints(items.map((item) => item.complaint));
-      setUpdates(items.flatMap((item) => [
-        {
-          id: `escalation-${item.complaint.id}`,
-          complaintId: item.complaint.id,
-          status: item.complaint.status,
-          message: `Escalation reason: ${item.reason}`,
-          author: item.submittedBy,
-          timestamp: item.submittedAt,
-        },
-        ...item.reviews.map((review) => ({
-          id: `review-${review.id}`,
-          complaintId: item.complaint.id,
-          status: item.complaint.status,
-          message: `Admin escalation review: ${review.note}`,
-          author: review.reviewedBy,
-          timestamp: review.reviewedAt,
-        })),
-      ]));
-    }).catch((error: unknown) => {
-      setFeedback({ complaintId: '', type: 'error', message: error instanceof Error ? error.message : 'Could not load escalations.' });
-    }).finally(() => { if (active) setIsLoading(false); });
-    return () => { active = false; };
+
+    const load = async () => {
+      try {
+        await refreshData();
+      } catch (error) {
+        if (active) {
+          setFeedback({
+            complaintId: '',
+            type: 'error',
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Could not load escalations.',
+          });
+        }
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+
+    void load();
+
+    return () => {
+      active = false;
+    };
   }, [session]);
 
   const escalated = complaints.filter((c) => c.isEscalated);
 
   const handleOpenReview = (complaintId: string) => {
-    setActiveReviewId((prev) => (prev === complaintId ? null : complaintId));
+    setActiveReviewId((prev) =>
+      prev === complaintId ? null : complaintId,
+    );
     setFeedback(null);
   };
 
@@ -71,6 +123,7 @@ export function AdminEscalationsPage() {
 
   const handleSubmitReview = async (complaintId: string) => {
     const note = (reviewNotes[complaintId] || '').trim();
+
     if (!note) {
       setFeedback({
         complaintId,
@@ -95,20 +148,11 @@ export function AdminEscalationsPage() {
     try {
       const result = USE_REAL_API
         ? await submitEscalationReview(complaintId, note, session)
-        : reviewComplaintEscalation(complaintId, note, session);
+        : await reviewComplaintEscalation(complaintId, note, session);
 
       if (result.outcome === 'reviewed') {
-        if (USE_REAL_API) {
-          const items = await loadEscalations(session);
-          setComplaints(items.map((item) => item.complaint));
-          setUpdates(items.flatMap((item) => [
-            { id: `escalation-${item.complaint.id}`, complaintId: item.complaint.id, status: item.complaint.status, message: `Escalation reason: ${item.reason}`, author: item.submittedBy, timestamp: item.submittedAt },
-            ...item.reviews.map((review) => ({ id: `review-${review.id}`, complaintId: item.complaint.id, status: item.complaint.status, message: `Admin escalation review: ${review.note}`, author: review.reviewedBy, timestamp: review.reviewedAt })),
-          ]));
-        } else {
-          setComplaints(getComplaints());
-          setUpdates(getComplaintUpdates());
-        }
+        await refreshData();
+
         setReviewNotes((prev) => ({ ...prev, [complaintId]: '' }));
         setActiveReviewId(null);
         setFeedback({
@@ -140,7 +184,10 @@ export function AdminEscalationsPage() {
       setFeedback({
         complaintId,
         type: 'error',
-        message: error instanceof Error ? error.message : 'Storage write failed during escalation review.',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Storage write failed during escalation review.',
       });
     } finally {
       setIsSubmitting((prev) => ({ ...prev, [complaintId]: false }));
@@ -154,9 +201,16 @@ export function AdminEscalationsPage() {
         description="Review and handle complaints that have been escalated by users."
       />
 
-      {feedback?.complaintId === '' && <p role="alert" className="mb-3 text-sm text-rose-700">{feedback.message}</p>}
+      {feedback?.complaintId === '' && (
+        <p role="alert" className="mb-3 text-sm text-rose-700">
+          {feedback.message}
+        </p>
+      )}
+
       {isLoading ? (
-        <p role="status" className="text-sm text-ink-500">Loading escalations...</p>
+        <p role="status" className="text-sm text-ink-500">
+          Loading escalations...
+        </p>
       ) : escalated.length === 0 ? (
         <div className="card">
           <EmptyState
@@ -168,37 +222,57 @@ export function AdminEscalationsPage() {
       ) : (
         <div className="space-y-4">
           {escalated.map((c) => {
-            const complaintUpdates = updates.filter((u) => u.complaintId === c.id);
+            const complaintUpdates = updates.filter(
+              (u) => u.complaintId === c.id,
+            );
+
             const escalationUpdate = complaintUpdates
               .filter((u) => u.message.startsWith('Escalation reason:'))
-              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0] ||
-              complaintUpdates.sort(
-                (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              .sort(
+                (a, b) =>
+                  new Date(b.timestamp).getTime() -
+                  new Date(a.timestamp).getTime(),
+              )[0] ||
+              [...complaintUpdates].sort(
+                (a, b) =>
+                  new Date(b.timestamp).getTime() -
+                  new Date(a.timestamp).getTime(),
               )[0];
 
             const latestReviewUpdate = complaintUpdates
-              .filter((u) => u.message.startsWith('Admin escalation review:'))
-              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+              .filter((u) =>
+                u.message.startsWith('Admin escalation review:'),
+              )
+              .sort(
+                (a, b) =>
+                  new Date(b.timestamp).getTime() -
+                  new Date(a.timestamp).getTime(),
+              )[0];
 
             const isFormOpen = activeReviewId === c.id;
             const isBusy = Boolean(isSubmitting[c.id]);
-            const cardFeedback = feedback?.complaintId === c.id ? feedback : null;
+            const cardFeedback =
+              feedback?.complaintId === c.id ? feedback : null;
 
             return (
               <div key={c.id} className="card border-rose-100 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-                  {/* Left: info */}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-600">
                         <AlertTriangle className="h-3 w-3" /> Escalated
                       </span>
+
                       {latestReviewUpdate && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
                           <CheckCircle2 className="h-3 w-3" /> Review Recorded
                         </span>
                       )}
-                      <span className="font-mono text-xs font-medium text-ink-400">{c.id}</span>
+
+                      <span className="font-mono text-xs font-medium text-ink-400">
+                        {c.id}
+                      </span>
+
                       <PriorityBadge priority={c.priority} />
                     </div>
 
@@ -208,14 +282,19 @@ export function AdminEscalationsPage() {
                     >
                       {c.subject}
                     </Link>
-                    <p className="mt-1 text-sm text-ink-500">{c.description}</p>
+
+                    <p className="mt-1 text-sm text-ink-500">
+                      {c.description}
+                    </p>
 
                     {escalationUpdate && (
                       <div className="mt-3 rounded-lg bg-rose-50/50 px-3 py-2">
                         <p className="text-xs font-medium text-rose-700">
                           Escalation details — {relativeTime(escalationUpdate.timestamp)}
                         </p>
-                        <p className="mt-0.5 text-sm text-ink-600">{escalationUpdate.message}</p>
+                        <p className="mt-0.5 text-sm text-ink-600">
+                          {escalationUpdate.message}
+                        </p>
                         <p className="mt-1 text-xs text-ink-400">
                           Requested by {escalationUpdate.author} · {formatDate(escalationUpdate.timestamp)}
                         </p>
@@ -227,14 +306,15 @@ export function AdminEscalationsPage() {
                         <div className="flex items-center gap-1 text-xs font-medium text-emerald-800">
                           <ShieldAlert className="h-3.5 w-3.5" /> Latest Admin Action
                         </div>
-                        <p className="mt-0.5 text-sm text-ink-700">{latestReviewUpdate.message}</p>
+                        <p className="mt-0.5 text-sm text-ink-700">
+                          {latestReviewUpdate.message}
+                        </p>
                         <p className="mt-1 text-xs text-ink-400">
                           Reviewed by {latestReviewUpdate.author} · {formatDate(latestReviewUpdate.timestamp)}
                         </p>
                       </div>
                     )}
 
-                    {/* Inline Review Form */}
                     {isFormOpen && (
                       <div className="mt-4 rounded-lg border border-accent-200 bg-accent-50/30 p-4">
                         <h4 className="text-xs font-semibold uppercase tracking-wider text-accent-900">
@@ -248,7 +328,9 @@ export function AdminEscalationsPage() {
                           className="input mt-2 w-full text-sm"
                           placeholder="Describe administrative actions taken, triage decisions, or resolution plan..."
                           value={reviewNotes[c.id] || ''}
-                          onChange={(e) => handleNoteChange(c.id, e.target.value)}
+                          onChange={(e) =>
+                            handleNoteChange(c.id, e.target.value)
+                          }
                           aria-label={`Escalation review notes for ${c.id}`}
                           disabled={isBusy}
                         />
@@ -274,7 +356,6 @@ export function AdminEscalationsPage() {
                       </div>
                     )}
 
-                    {/* Feedback message */}
                     {cardFeedback && (
                       <div
                         role={cardFeedback.type === 'error' ? 'alert' : 'status'}
@@ -289,10 +370,14 @@ export function AdminEscalationsPage() {
                     )}
                   </div>
 
-                  {/* Right: actions */}
                   <div className="flex shrink-0 flex-col items-start gap-2 lg:w-48">
                     <StatusBadge status={c.status} />
-                    {!USE_REAL_API && <span className="text-xs text-ink-400">Assigned: {c.assignedTo ?? 'Unassigned'}</span>}
+
+                    {!USE_REAL_API && (
+                      <span className="text-xs text-ink-400">
+                        Assigned: {c.assignedTo ?? 'Unassigned'}
+                      </span>
+                    )}
 
                     <button
                       type="button"
@@ -303,7 +388,10 @@ export function AdminEscalationsPage() {
                       {latestReviewUpdate ? 'Add Review Note' : 'Review Escalation'}
                     </button>
 
-                    <Link to={`/complaints/${c.id}`} className="btn btn-ghost w-full text-xs">
+                    <Link
+                      to={`/complaints/${c.id}`}
+                      className="btn btn-ghost w-full text-xs"
+                    >
                       View Details <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   </div>
