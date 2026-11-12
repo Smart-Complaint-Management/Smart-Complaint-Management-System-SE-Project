@@ -1,35 +1,42 @@
+
 // API service layer for the Smart Complaint Management System.
-//
-// The frontend is designed to communicate with a Flask REST API backed by
-// MySQL. The exact endpoint URLs and response shapes are not yet finalized
-// — they depend on the API contract our team agrees on. This module provides
-// a thin abstraction with two implementations:
-//
-//   1. A mock implementation (default) that reads from local mock data so the
-//      UI is fully functional during frontend development.
-//   2. A real HTTP implementation stub that will be activated once the backend
-//      is available. The base URL is configurable through the API_BASE_URL
-//      environment variable or a sensible default.
-//
-// Components should never import mock data directly. They should call the
-// functions exported from this module so the swap to the real backend is
-// transparent.
 
 import type { AppNotification, Complaint, EscalationReview } from '@/types';
-import { getMyNotifications } from '@/services/complaintService';
-import { getComplaint as getLocalComplaint, getComplaintUpdates, getComplaints as getLocalComplaints, getMyComplaints, createComplaint as createLocalComplaint, submitComplaintEscalation, reviewComplaintEscalation } from '@/services/complaintService';
-import { createComplaintRequest, getComplaintRequest, listComplaintsRequest, submitEscalationRequest, listEscalationsRequest, reviewEscalationRequest } from '@/services/authApi';
+
+import {
+  getMyNotifications,
+  getComplaint as getLocalComplaint,
+  getComplaintUpdates,
+  getComplaints as getLocalComplaints,
+  getMyComplaints,
+  createComplaint as createLocalComplaint,
+  submitComplaintEscalation,
+  reviewComplaintEscalation,
+} from '@/services/complaintService';
+
+import {
+  createComplaintRequest,
+  getComplaintRequest,
+  listComplaintsRequest,
+  submitEscalationRequest,
+  listEscalationsRequest,
+  reviewEscalationRequest,
+} from '@/services/authApi';
+
 import type { NewComplaintInput } from '@/services/complaintService';
 import type { AuthSession } from '@/pages/auth/authContext';
 
-// Keep demo mode as the default until all workflows are integrated.
-const USE_REAL_API = import.meta.env.VITE_USE_REAL_API === 'true';
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ??
+// Production always uses the real Flask + MySQL backend.
+// Local development can enable it using VITE_USE_REAL_API=true.
+const USE_REAL_API =
+  import.meta.env.PROD || import.meta.env.VITE_USE_REAL_API === 'true';
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ??
   (import.meta.env.DEV ? 'http://localhost:5000' : '/api');
 
 // --- Shared helpers ----------------------------------------------------------
 
-/** Format an ISO date string into a human-readable date. */
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -38,7 +45,6 @@ export function formatDate(iso: string): string {
   });
 }
 
-/** Format an ISO date string into a human-readable date with time. */
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
     year: 'numeric',
@@ -49,40 +55,70 @@ export function formatDateTime(iso: string): string {
   });
 }
 
-/** Return a relative-time label like "2 days ago" for an ISO date. */
 export function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(diff / 60000);
+
   if (minutes < 1) return 'just now';
   if (minutes < 60) return `${minutes}m ago`;
+
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
+
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
+
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
 }
 
-// --- Mock implementations ----------------------------------------------------
+// --- Complaint loading -------------------------------------------------------
 
-function mockGetNotifications(session: AuthSession | null): Promise<AppNotification[]> {
+function mockGetNotifications(
+  session: AuthSession | null,
+): Promise<AppNotification[]> {
   return Promise.resolve(getMyNotifications(session));
 }
 
-export async function loadComplaints(session: AuthSession | null): Promise<Complaint[]> {
-  if (USE_REAL_API) return listComplaintsRequest();
-  return session?.role === 'admin' ? getLocalComplaints() : getMyComplaints(session);
+export async function loadComplaints(
+  session: AuthSession | null,
+): Promise<Complaint[]> {
+  if (USE_REAL_API) {
+    return listComplaintsRequest();
+  }
+
+  return session?.role === 'admin'
+    ? getLocalComplaints()
+    : getMyComplaints(session);
 }
 
-export async function loadComplaint(id: string, session: AuthSession | null) {
-  if (USE_REAL_API) return getComplaintRequest(id);
+export async function loadComplaint(
+  id: string,
+  session: AuthSession | null,
+) {
+  if (USE_REAL_API) {
+    return getComplaintRequest(id);
+  }
+
   const complaint = getLocalComplaint(id);
-  if (!complaint || (session?.role !== 'admin' && complaint.submittedBy !== session?.fullName)) return null;
+
+  if (
+    !complaint ||
+    (session?.role !== 'admin' &&
+      complaint.submittedBy !== session?.fullName)
+  ) {
+    return null;
+  }
+
   return {
     complaint,
-    updates: getComplaintUpdates().filter((update) => update.complaintId === id),
+    updates: getComplaintUpdates().filter(
+      (update) => update.complaintId === id,
+    ),
   };
 }
+
+// --- Escalations -------------------------------------------------------------
 
 export interface EscalationView {
   complaint: Complaint;
@@ -92,10 +128,14 @@ export interface EscalationView {
   reviews: EscalationReview[];
 }
 
-export async function loadEscalations(session: AuthSession | null): Promise<EscalationView[]> {
+export async function loadEscalations(
+  session: AuthSession | null,
+): Promise<EscalationView[]> {
   if (session?.role !== 'admin') return [];
+
   if (USE_REAL_API) {
     const items = await listEscalationsRequest();
+
     return items.map(({ complaint: backendComplaint, escalation }) => ({
       complaint: {
         id: backendComplaint.id,
@@ -116,20 +156,38 @@ export async function loadEscalations(session: AuthSession | null): Promise<Esca
       reviews: escalation.reviews,
     }));
   }
-  const complaints = getLocalComplaints().filter((complaint) => complaint.isEscalated);
+
+  const complaints = getLocalComplaints().filter(
+    (complaint) => complaint.isEscalated,
+  );
+
   const updates = getComplaintUpdates();
+
   return complaints.map((complaint) => {
-    const related = updates.filter((update) => update.complaintId === complaint.id);
-    const submission = related.find((update) => update.message.startsWith('Escalation reason:'));
-    const reviews = related.filter((update) => update.message.startsWith('Admin escalation review:'));
+    const related = updates.filter(
+      (update) => update.complaintId === complaint.id,
+    );
+
+    const submission = related.find((update) =>
+      update.message.startsWith('Escalation reason:'),
+    );
+
+    const reviews = related.filter((update) =>
+      update.message.startsWith('Admin escalation review:'),
+    );
+
     return {
       complaint,
-      reason: submission?.message.replace(/^Escalation reason:\s*/, '') ?? '',
+      reason:
+        submission?.message.replace(/^Escalation reason:\s*/, '') ?? '',
       submittedBy: submission?.author ?? complaint.submittedBy,
       submittedAt: submission?.timestamp ?? complaint.updatedAt,
       reviews: reviews.map((review, index) => ({
         id: index + 1,
-        note: review.message.replace(/^Admin escalation review:\s*/, ''),
+        note: review.message.replace(
+          /^Admin escalation review:\s*/,
+          '',
+        ),
         reviewedBy: review.author,
         reviewedAt: review.timestamp,
       })),
@@ -137,24 +195,42 @@ export async function loadEscalations(session: AuthSession | null): Promise<Esca
   });
 }
 
-export async function submitEscalation(id: string, reason: string, session: AuthSession | null, complaint: Complaint) {
+export async function submitEscalation(
+  id: string,
+  reason: string,
+  session: AuthSession | null,
+  complaint: Complaint,
+) {
   if (USE_REAL_API && complaint.databaseId) {
     const escalation = await submitEscalationRequest(id, reason);
     return { outcome: 'submitted' as const, escalation };
   }
+
   return submitComplaintEscalation(id, reason, session);
 }
 
-export async function submitEscalationReview(id: string, note: string, session: AuthSession | null) {
+export async function submitEscalationReview(
+  id: string,
+  note: string,
+  session: AuthSession | null,
+) {
   if (USE_REAL_API) {
     const review = await reviewEscalationRequest(id, note);
     return { outcome: 'reviewed' as const, review };
   }
+
   return reviewComplaintEscalation(id, note, session);
 }
 
-export function submitComplaint(input: NewComplaintInput): Promise<Complaint> {
-  if (!USE_REAL_API) return createLocalComplaint(input);
+// --- Complaint submission ----------------------------------------------------
+
+export function submitComplaint(
+  input: NewComplaintInput,
+): Promise<Complaint> {
+  if (!USE_REAL_API) {
+    return createLocalComplaint(input);
+  }
+
   return createComplaintRequest({
     title: input.subject,
     description: input.description,
@@ -163,15 +239,30 @@ export function submitComplaint(input: NewComplaintInput): Promise<Complaint> {
   });
 }
 
+// --- Notifications -----------------------------------------------------------
+
 async function realGetNotifications(): Promise<AppNotification[]> {
-  const res = await fetch(`${API_BASE_URL}/notifications`, { credentials: 'include' }).catch(() => { throw new Error('Could not connect to the service. Check your connection and try again.'); });
+  const res = await fetch(`${API_BASE_URL}/notifications`, {
+    credentials: 'include',
+  }).catch(() => {
+    throw new Error(
+      'Could not connect to the service. Check your connection and try again.',
+    );
+  });
+
   if (!res.ok) {
-    const data = await res.json().catch(() => ({})) as { error?: string };
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+    };
+
     throw Object.assign(
-      new Error(data.error ?? `Failed to fetch notifications: ${res.status}`),
+      new Error(
+        data.error ?? `Failed to fetch notifications: ${res.status}`,
+      ),
       { status: res.status },
     );
   }
+
   return (await res.json()) as AppNotification[];
 }
 
@@ -179,12 +270,21 @@ async function realGetNotifications(): Promise<AppNotification[]> {
 
 export const api = {
   getComplaints: loadComplaints,
-  getComplaintById: async (id: string, session: AuthSession | null) =>
-    (await loadComplaint(id, session))?.complaint ?? null,
-  getUpdatesForComplaint: async (id: string, session: AuthSession | null) =>
-    (await loadComplaint(id, session))?.updates ?? [],
+
+  getComplaintById: async (
+    id: string,
+    session: AuthSession | null,
+  ) => (await loadComplaint(id, session))?.complaint ?? null,
+
+  getUpdatesForComplaint: async (
+    id: string,
+    session: AuthSession | null,
+  ) => (await loadComplaint(id, session))?.updates ?? [],
+
   getNotifications: (session: AuthSession | null) =>
-    USE_REAL_API ? realGetNotifications() : mockGetNotifications(session),
+    USE_REAL_API
+      ? realGetNotifications()
+      : mockGetNotifications(session),
 };
 
 export { API_BASE_URL, USE_REAL_API };
