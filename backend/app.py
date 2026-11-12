@@ -490,28 +490,35 @@ def get_complaint(public_id):
     user = current_user()
     if user is None:
         return jsonify({"error": "Authentication is required."}), 401
+
     try:
         row = db.session.execute(text(
             "SELECT c.id, c.public_id, c.user_id, c.title, c.description, c.status, c.priority, "
             "c.created_at, c.updated_at, u.full_name, cc.name AS category, "
+            "c.possible_duplicate_id, c.duplicate_review_status, "
+            "c.duplicate_reviewed_by, c.duplicate_reviewed_at, "
             "EXISTS(SELECT 1 FROM complaint_escalations e WHERE e.complaint_id = c.id) AS is_escalated "
             "FROM complaints c JOIN users u ON u.id = c.user_id "
             "LEFT JOIN complaint_categories cc ON cc.id = c.category_id "
             "WHERE c.public_id = :public_id"
         ), {"public_id": public_id}).mappings().first()
+
         if row is None:
             return jsonify({"error": "Complaint not found."}), 404
+
         if user.role != "admin" and row["user_id"] != user.id:
             return jsonify({"error": "You cannot view this complaint."}), 403
+
         result = complaint_json(row)
         result["updates"] = complaint_updates(row["id"])
         result["escalation"] = get_escalation(row["id"])
+
     except Exception:
         db.session.rollback()
         app.logger.exception("Complaint retrieval failed")
         return jsonify({"error": "Could not retrieve complaint."}), 500
-    return jsonify(result), 200
 
+    return jsonify(result), 200
 
 @app.route("/notifications", methods=["GET"])
 def get_notifications():
