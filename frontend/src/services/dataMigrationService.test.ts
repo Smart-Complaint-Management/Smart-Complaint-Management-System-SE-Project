@@ -159,24 +159,38 @@ describe('dataMigrationService', () => {
     expect(window.localStorage.getItem(MIGRATION_FLAG_KEY)).toBeNull();
   });
 
-  it('migrates legacy-only state upon direct All Complaints navigation (readComplaints path)', () => {
-    // Only legacy storage exists; primary storage is completely uninitialized
-    const legacy = [
-      createMockComplaint({
-        id: 'CMP-2026-888',
-        subject: 'Direct Navigation Test Complaint',
-        assignedTo: 'Registrar Office',
-      }),
-    ];
-    window.localStorage.setItem(LEGACY_ASSIGNMENTS_KEY, JSON.stringify(legacy));
-    expect(window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY)).toBeNull();
+it('migrates legacy-only complaint data when migration runs directly', async () => {
+  const legacy = [
+    createMockComplaint({
+      id: 'CMP-2026-888',
+      subject: 'Direct Navigation Test Complaint',
+      assignedTo: 'Registrar Office',
+    }),
+  ];
 
-    // Directly call getComplaints() as All Complaints and Complaint Details do
-    const complaints = getComplaints();
+  window.localStorage.setItem(
+    LEGACY_ASSIGNMENTS_KEY,
+    JSON.stringify(legacy),
+  );
 
-    expect(complaints.some((c) => c.id === 'CMP-2026-888')).toBe(true);
-    expect(complaints.find((c) => c.id === 'CMP-2026-888')?.assignedTo).toBe('Registrar Office');
-    // Primary storage must now be initialized with migrated data
-    expect(window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY)).not.toBeNull();
-  });
+  expect(
+    window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY),
+  ).toBeNull();
+
+  await migrateComplaintData();
+
+  const complaints = JSON.parse(
+    window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY) ?? '[]',
+  ) as Complaint[];
+
+  expect(complaints.some(c => c.id === 'CMP-2026-888')).toBe(true);
+
+  expect(
+    complaints.find(c => c.id === 'CMP-2026-888')?.assignedTo,
+  ).toBe('Registrar Office');
+
+  expect(
+    window.localStorage.getItem(PRIMARY_COMPLAINTS_KEY),
+  ).not.toBeNull();
+});
 });

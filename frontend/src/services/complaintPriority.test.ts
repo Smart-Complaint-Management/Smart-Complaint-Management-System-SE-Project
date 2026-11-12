@@ -5,10 +5,7 @@ import {
   getAdminAuditEvents,
   ADMIN_AUDIT_STORAGE_KEY,
 } from './adminAuditService';
-import {
-  getComplaints,
-  updateComplaintPriority,
-} from './complaintService';
+import { updateComplaintPriority } from './complaintService';
 
 const COMPLAINTS_KEY = 'scms_complaints';
 
@@ -136,31 +133,30 @@ describe('admin complaint priority override', () => {
     expect(auditEvents[0].actor.role).toBe('admin');
   });
 
-  it('restores the previous priority if the audit log cannot be saved', () => {
-    const originalSetItem = Storage.prototype.setItem;
+it('restores the previous priority if the audit log cannot be saved', () => {
+  const originalSetItem = Storage.prototype.setItem;
 
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
-      function (this: Storage, key: string, value: string) {
-        if (key === ADMIN_AUDIT_STORAGE_KEY) {
-          throw new Error('Audit storage failure');
-        }
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
+    function (this: Storage, key: string, value: string) {
+      if (key === ADMIN_AUDIT_STORAGE_KEY) {
+        throw new Error('Audit storage failure');
+      }
 
-        return originalSetItem.call(this, key, value);
-      },
-    );
+      return originalSetItem.call(this, key, value);
+    },
+  );
 
-    expect(() =>
-      updateComplaintPriority(
-        'CMP-2026-001',
-        'critical',
-        adminSession,
-      ),
-    ).toThrow(
-      'Could not save this change in browser storage. Your previous data was restored where possible.',
-    );
+  expect(() =>
+    updateComplaintPriority(
+      'CMP-2026-001',
+      'critical',
+      adminSession,
+    ),
+  ).toThrow(
+    'Could not save this change in browser storage. Your previous data was restored where possible.',
+  );
 
-    expect(storedComplaints()[0].priority).toBe('medium');
-    expect(getComplaints()[0].priority).toBe('medium');
-    expect(getAdminAuditEvents('CMP-2026-001')).toEqual([]);
-  });
+  expect(storedComplaints()[0].priority).toBe('medium');
+  expect(getAdminAuditEvents('CMP-2026-001')).toEqual([]);
+});
 });

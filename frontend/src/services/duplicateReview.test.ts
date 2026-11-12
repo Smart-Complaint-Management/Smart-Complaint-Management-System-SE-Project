@@ -1,14 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AuthSession } from '@/pages/auth/authContext';
-import type { Complaint, ComplaintUpdate } from '@/types';
-import {
-  getComplaints,
-  getComplaintUpdates,
-  reviewDuplicate,
-} from './complaintService';
 
-const COMPLAINTS_KEY = 'scms_complaints';
-const UPDATES_KEY = 'scms_complaint_updates';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AuthSession } from '@/pages/auth/authContext';
+import type { Complaint } from '@/types';
+import { reviewDuplicate } from './complaintService';
+import {
+  listComplaintsRequest,
+  reviewDuplicateRequest,
+} from './authApi';
+
+vi.mock('./authApi', () => ({
+  createComplaintRequest: vi.fn(),
+  listComplaintsRequest: vi.fn(),
+  getComplaintRequest: vi.fn(),
+  patchComplaintStatus: vi.fn(),
+  submitEscalationRequest: vi.fn(),
+  reviewEscalationRequest: vi.fn(),
+  reviewDuplicateRequest: vi.fn(),
+}));
 
 const adminSession: AuthSession = {
   email: 'admin@example.test',
@@ -22,79 +30,57 @@ const userSession: AuthSession = {
   role: 'user',
 };
 
-function makeComplaint(
-  id: string,
-  possibleDuplicateId: string | null,
-): Complaint {
-  return {
-    id,
-    subject: 'Campus network issue',
-    description: 'Unable to connect to the campus Wi-Fi.',
-    category: 'it_infrastructure',
-    status: 'submitted',
-    priority: 'medium',
-    submittedBy: 'Test User',
-    assignedTo: null,
-    submittedAt: '2026-01-01T10:00:00.000Z',
-    updatedAt: '2026-01-01T10:00:00.000Z',
-    isEscalated: false,
-    possibleDuplicateId,
-  };
-}
+const complaint = {
+  id: 'CMP-001',
+  subject: 'Campus network issue',
+  duplicateReviewStatus: 'confirmed',
+} as Complaint;
 
-function seedStorage() {
-  const first = makeComplaint('CMP-001', 'CMP-002');
-  const second = makeComplaint('CMP-002', 'CMP-001');
-
-  localStorage.setItem(
-    COMPLAINTS_KEY,
-    JSON.stringify([first, second]),
-  );
-
-  localStorage.setItem(UPDATES_KEY, JSON.stringify([]));
-}
-
-function stored<T>(key: string): T {
-  return JSON.parse(
-    localStorage.getItem(key) ?? 'null',
-  ) as T;
-}
+const duplicate = {
+  id: 'CMP-002',
+  subject: 'Wi-Fi connectivity issue',
+  duplicateReviewStatus: 'confirmed',
+} as Complaint;
 
 describe('duplicate complaint review', () => {
   beforeEach(() => {
-    localStorage.clear();
-    seedStorage();
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
-  });
-
-  it('rejects users who are not administrators', () => {
-    const result = reviewDuplicate(
+  it('rejects users who are not administrators', async () => {
+    const result = await reviewDuplicate(
       'CMP-001',
       'confirmed',
       userSession,
     );
 
     expect(result).toEqual({ outcome: 'unauthorized' });
-    expect(getComplaints()[0].duplicateReviewStatus).toBeUndefined();
+    expect(reviewDuplicateRequest).not.toHaveBeenCalled();
   });
 
-  it('rejects unauthenticated review attempts', () => {
-    const result = reviewDuplicate(
+  it('rejects unauthenticated review attempts', async () => {
+    const result = await reviewDuplicate(
       'CMP-001',
       'confirmed',
       null,
     );
 
     expect(result).toEqual({ outcome: 'unauthorized' });
+    expect(reviewDuplicateRequest).not.toHaveBeenCalled();
   });
 
-  it('returns not_found for an unknown complaint', () => {
-    const result = reviewDuplicate(
-      'CMP-999',
+  it('returns not_found when the complaint is missing', async () => {
+    vi.mocked(reviewDuplicateRequest).mockResolvedValue({
+      outcome: 'reviewed',
+      complaintId: 'CMP-001',
+      duplicateId: 'CMP-002',
+      decision: 'confirmed',
+    });
+
+    vi.mocked(listComplaintsRequest).mockResolvedValue([duplicate]);
+
+    const result = await reviewDuplicate(
+      'CMP-001',
       'confirmed',
       adminSession,
     );
@@ -102,112 +88,140 @@ describe('duplicate complaint review', () => {
     expect(result).toEqual({ outcome: 'not_found' });
   });
 
-  it('allows an administrator to confirm a duplicate', () => {
-    const result = reviewDuplicate(
+  it('returns duplicate_not_found when the duplicate is missing', async () => {
+    vi.mocked(reviewDuplicateRequest).mockResolvedValue({
+      outcome: 'reviewed',
+      complaintId: 'CMP-001',
+      duplicateId: 'CMP-002',
+      decision: 'confirmed',
+    });
+
+    vi.mocked(listComplaintsRequest).mockResolvedValue([complaint]);
+
+    const result = await reviewDuplicate(
       'CMP-001',
       'confirmed',
       adminSession,
     );
 
-    expect(result.outcome).toBe('reviewed');
-
-    const complaints = getComplaints();
-
-    expect(
-      complaints.find((item) => item.id === 'CMP-001')
-        ?.duplicateReviewStatus,
-    ).toBe('confirmed');
-
-    expect(
-      complaints.find((item) => item.id === 'CMP-002')
-        ?.duplicateReviewStatus,
-    ).toBe('confirmed');
+    expect(result).toEqual({ outcome: 'duplicate_not_found' });
   });
 
-  it('allows an administrator to mark complaints as not duplicates', () => {
-    const result = reviewDuplicate(
+  it('allows an admin to confirm a duplicate', async () => {
+    vi.mocked(reviewDuplicateRequest).mockResolvedValue({
+      outcome: 'reviewed',
+      complaintId: 'CMP-001',
+      duplicateId: 'CMP-002',
+      decision: 'confirmed',
+    });
+
+    vi.mocked(listComplaintsRequest).mockResolvedValue([
+      complaint,
+      duplicate,
+    ]);
+
+    const result = await reviewDuplicate(
+      'CMP-001',
+      'confirmed',
+      adminSession,
+    );
+
+    expect(reviewDuplicateRequest).toHaveBeenCalledWith(
+      'CMP-001',
+      'confirmed',
+    );
+
+    expect(result).toEqual({
+      outcome: 'reviewed',
+      complaint,
+      duplicate,
+    });
+  });
+
+  it('allows an admin to mark complaints as not duplicates', async () => {
+    vi.mocked(reviewDuplicateRequest).mockResolvedValue({
+      outcome: 'reviewed',
+      complaintId: 'CMP-001',
+      duplicateId: 'CMP-002',
+      decision: 'not_duplicate',
+    });
+
+    vi.mocked(listComplaintsRequest).mockResolvedValue([
+      complaint,
+      duplicate,
+    ]);
+
+    const result = await reviewDuplicate(
       'CMP-001',
       'not_duplicate',
       adminSession,
     );
 
-    expect(result.outcome).toBe('reviewed');
-
-    const complaints = getComplaints();
-
-    expect(
-      complaints.find((item) => item.id === 'CMP-001')
-        ?.duplicateReviewStatus,
-    ).toBe('not_duplicate');
-
-    expect(
-      complaints.find((item) => item.id === 'CMP-002')
-        ?.duplicateReviewStatus,
-    ).toBe('not_duplicate');
-  });
-
-  it('keeps both complaints as separate records after review', () => {
-    reviewDuplicate('CMP-001', 'confirmed', adminSession);
-
-    const complaints = getComplaints();
-
-    expect(complaints).toHaveLength(2);
-    expect(complaints.some((item) => item.id === 'CMP-001')).toBe(true);
-    expect(complaints.some((item) => item.id === 'CMP-002')).toBe(true);
-  });
-
-  it('records the administrator and review timestamp', () => {
-    reviewDuplicate('CMP-001', 'confirmed', adminSession);
-
-    const complaints = getComplaints();
-
-    for (const complaint of complaints) {
-      expect(complaint.duplicateReviewedBy).toBe(
-        adminSession.fullName,
-      );
-
-      expect(complaint.duplicateReviewedAt).toBeTruthy();
-
-      expect(
-        Number.isNaN(
-          Date.parse(complaint.duplicateReviewedAt as string),
-        ),
-      ).toBe(false);
-    }
-  });
-
-  it('adds a review entry to the complaint timeline', () => {
-    reviewDuplicate('CMP-001', 'confirmed', adminSession);
-
-    const updates = getComplaintUpdates();
-
-    expect(updates.length).toBeGreaterThan(0);
-    expect(updates).toContainEqual(
-      expect.objectContaining({
-        complaintId: 'CMP-001',
-        author: adminSession.fullName,
-      }),
+    expect(reviewDuplicateRequest).toHaveBeenCalledWith(
+      'CMP-001',
+      'not_duplicate',
     );
+
+    expect(result.outcome).toBe('reviewed');
   });
 
-  it('persists the reviewed complaints in browser storage', () => {
-    reviewDuplicate('CMP-001', 'confirmed', adminSession);
+  it('returns unchanged when the backend reports no change', async () => {
+    vi.mocked(reviewDuplicateRequest).mockResolvedValue({
+      outcome: 'unchanged',
+      complaintId: 'CMP-001',
+      duplicateId: 'CMP-002',
+      decision: 'confirmed',
+    });
 
-    const savedComplaints = stored<Complaint[]>(COMPLAINTS_KEY);
+    const result = await reviewDuplicate(
+      'CMP-001',
+      'confirmed',
+      adminSession,
+    );
 
-    expect(savedComplaints).toHaveLength(2);
-
-    expect(
-      savedComplaints.find((item) => item.id === 'CMP-001')
-        ?.duplicateReviewStatus,
-    ).toBe('confirmed');
+    expect(result).toEqual({ outcome: 'unchanged' });
+    expect(listComplaintsRequest).not.toHaveBeenCalled();
   });
 
-  it('persists timeline updates in browser storage', () => {
-    reviewDuplicate('CMP-001', 'confirmed', adminSession);
+  it('returns no_duplicate when the complaint has no possible duplicate', async () => {
+    vi.mocked(reviewDuplicateRequest).mockRejectedValue(
+      new Error('No possible duplicate'),
+    );
 
-    const savedUpdates = stored<ComplaintUpdate[]>(UPDATES_KEY);
+    const result = await reviewDuplicate(
+      'CMP-001',
+      'confirmed',
+      adminSession,
+    );
 
-    expect(savedUpdates.length).toBeGreaterThan(0);
+    expect(result).toEqual({ outcome: 'no_duplicate' });
+  });
+
+  it('returns duplicate_not_found when the backend cannot find the duplicate', async () => {
+    vi.mocked(reviewDuplicateRequest).mockRejectedValue(
+      new Error('Duplicate complaint not found'),
+    );
+
+    const result = await reviewDuplicate(
+      'CMP-001',
+      'confirmed',
+      adminSession,
+    );
+
+    expect(result).toEqual({ outcome: 'duplicate_not_found' });
+  });
+
+  it('returns not_found when the backend cannot find the complaint', async () => {
+    vi.mocked(reviewDuplicateRequest).mockRejectedValue(
+      new Error('Complaint not found'),
+    );
+
+    const result = await reviewDuplicate(
+      'CMP-001',
+      'confirmed',
+      adminSession,
+    );
+
+    expect(result).toEqual({ outcome: 'not_found' });
   });
 });

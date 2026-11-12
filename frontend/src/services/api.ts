@@ -26,10 +26,14 @@ import {
 import type { NewComplaintInput } from '@/services/complaintService';
 import type { AuthSession } from '@/pages/auth/authContext';
 
-// Production always uses the real Flask + MySQL backend.
-// Local development can enable it using VITE_USE_REAL_API=true.
-  const USE_REAL_API =
-    import.meta.env.PROD || import.meta.env.VITE_USE_REAL_API === 'true';
+// Tests always use localStorage-backed services.
+// Production uses Flask + MySQL.
+// Local development can enable the real API with VITE_USE_REAL_API=true.
+const IS_TEST = import.meta.env.MODE === 'test';
+
+const USE_REAL_API =
+  !IS_TEST &&
+  (import.meta.env.PROD || import.meta.env.VITE_USE_REAL_API === 'true');
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
