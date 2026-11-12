@@ -459,7 +459,7 @@ export function ComplaintDetailPage() {
     setDuplicateReviewMessage('');
 
     try {
-      const result = reviewDuplicate(id, decision, session);
+      const result = await reviewDuplicate(id, decision, session);
 
       if (result.outcome === 'unauthorized') {
         setDuplicateReviewMessage(

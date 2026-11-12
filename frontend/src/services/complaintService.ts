@@ -5,6 +5,17 @@ import {
   statusLabels,
 } from '@/data/mockData';
 
+import {
+  createComplaintRequest,
+  listComplaintsRequest,
+  getComplaintRequest,
+  listNotificationsRequest,
+  patchComplaintStatus,
+  submitEscalationRequest,
+  reviewEscalationRequest,
+  reviewDuplicateRequest,
+} from './authApi';
+
 import type {
   Complaint,
   ComplaintCategory,
@@ -261,10 +272,12 @@ function nextComplaintId(): string {
 export async function createComplaint(
   input: NewComplaintInput,
 ): Promise<Complaint> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
   const subject = input.subject.trim();
   const description = input.description.trim();
+
+  if (!subject || !description) {
+    throw new Error('Subject and description are required.');
+  }
 
   const priority = classifyComplaintPriority(
     subject,
@@ -272,62 +285,12 @@ export async function createComplaint(
     input.category,
   );
 
-  const existingComplaints = readComplaints();
-
-  const possibleDuplicates = findPotentialDuplicates(
-    {
-      subject,
-      description,
-      category: input.category,
-    },
-    existingComplaints,
-  );
-
-  const possibleDuplicateId =
-    possibleDuplicates.length > 0
-      ? possibleDuplicates[0].complaint.id
-      : null;
-
-  const now = new Date().toISOString();
-
-  const complaint: Complaint = {
-    id: nextComplaintId(),
-    subject,
+  return createComplaintRequest({
+    title: subject,
     description,
     category: input.category,
-    status: 'submitted',
     priority,
-    submittedBy: input.submittedBy,
-    assignedTo: null,
-    submittedAt: now,
-    updatedAt: now,
-    isEscalated: false,
-    possibleDuplicateId,
-    duplicateReviewStatus: possibleDuplicateId
-      ? 'pending'
-      : undefined,
-  };
-
-  const complaints = [...existingComplaints];
-  complaints.unshift(complaint);
-
-  const updates = [...readUpdates()];
-
-  updates.push({
-    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
-    complaintId: complaint.id,
-    status: 'submitted',
-    message: 'Complaint registered. Awaiting triage and assignment.',
-    author: 'System',
-    timestamp: now,
   });
-
-  saveStorageBatch([
-    [STORAGE_KEY, complaints],
-    [UPDATES_STORAGE_KEY, updates],
-  ]);
-
-  return complaint;
 }
 
 /**
@@ -340,30 +303,37 @@ export function getComplaint(id: string): Complaint | undefined {
 /**
  * Return all complaints.
  */
-export function getComplaints(): Complaint[] {
-  return readComplaints();
+export async function getComplaints(): Promise<Complaint[]> {
+  return listComplaintsRequest();
 }
 
 /**
  * Return complaint timeline updates.
  */
-export function getComplaintUpdates(): ComplaintUpdate[] {
-  return readUpdates();
+export async function getComplaintUpdates(): Promise<ComplaintUpdate[]> {
+  const complaints = await listComplaintsRequest();
+
+  const results = await Promise.all(
+    complaints.map((complaint) =>
+      getComplaintRequest(complaint.id),
+    ),
+  );
+
+  return results.flatMap((result) => result.updates);
 }
 
 /**
  * Return complaints belonging to the authenticated user.
  */
-export function getMyComplaints(
+
+export async function getMyComplaints(
   session: AuthSession | null,
-): Complaint[] {
+): Promise<Complaint[]> {
   if (session?.role !== 'user') {
     return [];
   }
 
-  return readComplaints().filter(
-    (complaint) => complaint.submittedBy === session.fullName,
-  );
+  return listComplaintsRequest();
 }
 
 /**
@@ -375,6 +345,7 @@ export function getMyNotifications(
   if (session?.role !== 'user') {
     return [];
   }
+  
 
   const ownedComplaintIds = new Set(
     readComplaints()
@@ -601,89 +572,65 @@ export type ReviewDuplicateResult =
  * Both complaint records remain separate.
  * No complaint is merged, deleted, or automatically closed.
  */
-export function reviewDuplicate(
+export async function reviewDuplicate(
   complaintId: string,
   decision: Exclude<DuplicateReviewStatus, 'pending'>,
   session: AuthSession | null,
-): ReviewDuplicateResult {
+): Promise<ReviewDuplicateResult> {
   if (session?.role !== 'admin') {
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = readComplaints().map((item) => ({
-    ...item,
-  }));
+  try {
+    const result = await reviewDuplicateRequest(complaintId, decision);
 
-  const complaint = complaints.find(
-    (item) => item.id === complaintId,
-  );
+    if (result.outcome === 'unchanged') {
+      return { outcome: 'unchanged' };
+    }
 
-  if (!complaint) {
-    return { outcome: 'not_found' };
+    // Refresh complaints from the backend.
+    const complaints = await listComplaintsRequest();
+
+    const complaint = complaints.find(
+      (item) => item.id === result.complaintId,
+    );
+
+    const duplicate = complaints.find(
+      (item) => item.id === result.duplicateId,
+    );
+
+    if (!complaint) {
+      return { outcome: 'not_found' };
+    }
+
+    if (!duplicate) {
+      return { outcome: 'duplicate_not_found' };
+    }
+
+    return {
+      outcome: 'reviewed',
+      complaint,
+      duplicate,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : '';
+
+    if (message.includes('No possible duplicate')) {
+      return { outcome: 'no_duplicate' };
+    }
+
+    if (message.includes('Duplicate complaint not found')) {
+      return { outcome: 'duplicate_not_found' };
+    }
+
+    if (message.includes('Complaint not found')) {
+      return { outcome: 'not_found' };
+    }
+
+    throw error;
   }
-
-  if (!complaint.possibleDuplicateId) {
-    return { outcome: 'no_duplicate' };
-  }
-
-  const duplicate = complaints.find(
-    (item) => item.id === complaint.possibleDuplicateId,
-  );
-
-  if (!duplicate) {
-    return { outcome: 'duplicate_not_found' };
-  }
-
-  if (
-    complaint.duplicateReviewStatus === decision &&
-    duplicate.duplicateReviewStatus === decision
-  ) {
-    return { outcome: 'unchanged' };
-  }
-
-  const timestamp = new Date().toISOString();
-
-  complaint.duplicateReviewStatus = decision;
-  complaint.duplicateReviewedBy = session.fullName;
-  complaint.duplicateReviewedAt = timestamp;
-  complaint.updatedAt = timestamp;
-
-  duplicate.duplicateReviewStatus = decision;
-  duplicate.duplicateReviewedBy = session.fullName;
-  duplicate.duplicateReviewedAt = timestamp;
-  duplicate.updatedAt = timestamp;
-
-  const updates = [...readUpdates()];
-
-  const decisionMessage =
-    decision === 'confirmed'
-      ? `Admin confirmed that ${complaint.id} and ${duplicate.id} are possible duplicate complaints. Both complaint records have been retained.`
-      : `Admin reviewed ${complaint.id} and ${duplicate.id} and marked them as separate complaints. Both complaint records have been retained.`;
-
-  const update: ComplaintUpdate = {
-    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
-    complaintId,
-    status: complaint.status,
-    message: decisionMessage,
-    author: session.fullName,
-    timestamp,
-  };
-
-  updates.push(update);
-
-  saveStorageBatch([
-    [STORAGE_KEY, complaints],
-    [UPDATES_STORAGE_KEY, updates],
-  ]);
-
-  return {
-    outcome: 'reviewed',
-    complaint,
-    duplicate,
-  };
-}
-
-/* -------------------------------------------------------
+}/* -------------------------------------------------------
    COMPLAINT STATUS UPDATES
 ------------------------------------------------------- */
 
@@ -696,25 +643,24 @@ export type UpdateComplaintStatusResult =
 /**
  * Update complaint status and append a timeline entry.
  */
-export function updateComplaintStatus(
+
+export async function updateComplaintStatus(
   complaintId: string,
   status: ComplaintStatus,
   author: string,
   session: AuthSession | null,
-): UpdateComplaintStatusResult {
+): Promise<UpdateComplaintStatusResult> {
   if (session?.role !== 'admin') {
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = [...readComplaints()].map((item) => ({
-    ...item,
-  }));
+  const complaints = await listComplaintsRequest();
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
   );
 
-  if (!complaint) {
+  if (!complaint || !complaint.databaseId) {
     return { outcome: 'not_found' };
   }
 
@@ -722,46 +668,29 @@ export function updateComplaintStatus(
     return { outcome: 'unchanged' };
   }
 
-  const timestamp = new Date().toISOString();
-  const updates = [...readUpdates()];
-
-  const update: ComplaintUpdate = {
-    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
-    complaintId,
-    status,
-    message: `Status changed to ${statusLabels[status]}.`,
-    author,
-    timestamp,
-  };
-
   const previousStatus = complaint.status;
 
-  complaint.status = status;
-  complaint.updatedAt = timestamp;
+  const result = await patchComplaintStatus(
+    String(complaint.databaseId),
+    status,
+  );
 
-  updates.push(update);
-
-  const isResolution = status === 'resolved';
-  const notifications = [...readNotifications()];
-  const notificationId = `NOT-${update.id}`;
-
-  if (
-    !notifications.some((item) => item.id === notificationId)
-  ) {
-    notifications.push({
-      id: notificationId,
-      complaintId,
-      type: isResolution ? 'resolution' : 'status_update',
-      title: isResolution
-        ? 'Complaint resolved'
-        : `Status update on ${complaintId}`,
-      message: isResolution
-        ? `Your complaint ${complaintId} has been marked as resolved.`
-        : `Your complaint ${complaintId} status changed to ${statusLabels[status]}.`,
-      read: false,
-      timestamp: update.timestamp,
-    });
+  if (!result.changed) {
+    return { outcome: 'unchanged' };
   }
+
+  if (!result.update) {
+    throw new Error(
+      'Status was updated, but the backend did not return the complaint history update.',
+    );
+  }
+
+  const timestamp = result.update.timestamp;
+
+  const update: ComplaintUpdate = {
+    ...result.update,
+    complaintId,
+  };
 
   const currentAudit = getAdminAuditEvents();
 
@@ -771,21 +700,18 @@ export function updateComplaintStatus(
     actor: {
       name: session.fullName || author,
       email: session.email || '',
-      role: session.role || 'admin',
+      role: session.role,
     },
     previousValue: previousStatus,
     newValue: status,
     timestamp,
-    details: `Status changed from ${statusLabels[previousStatus] ?? previousStatus} to ${statusLabels[status] ?? status}`,
+    details: `Status changed from ${
+      statusLabels[previousStatus] ?? previousStatus
+    } to ${statusLabels[status] ?? status}.`,
   });
 
-  const updatedAudit = [auditEvent, ...currentAudit];
-
   saveStorageBatch([
-    [STORAGE_KEY, complaints],
-    [UPDATES_STORAGE_KEY, updates],
-    [NOTIFICATIONS_STORAGE_KEY, notifications],
-    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+    [ADMIN_AUDIT_STORAGE_KEY, [auditEvent, ...currentAudit]],
   ]);
 
   return {
@@ -807,18 +733,23 @@ export type ReviewEscalationResult =
 /**
  * Record an administrative escalation review action.
  */
-export function reviewComplaintEscalation(
+
+export async function reviewComplaintEscalation(
   complaintId: string,
   actionNote: string,
   session: AuthSession | null,
-): ReviewEscalationResult {
+): Promise<ReviewEscalationResult> {
   if (session?.role !== 'admin') {
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = [...readComplaints()].map((item) => ({
-    ...item,
-  }));
+  const trimmedNote = actionNote.trim();
+
+  if (!trimmedNote) {
+    throw new Error('A review note is required.');
+  }
+
+  const complaints = await listComplaintsRequest();
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
@@ -832,22 +763,19 @@ export function reviewComplaintEscalation(
     return { outcome: 'not_escalated' };
   }
 
-  const timestamp = new Date().toISOString();
-  const updates = [...readUpdates()];
+  const review = await reviewEscalationRequest(
+    complaintId,
+    trimmedNote,
+  );
 
   const update: ComplaintUpdate = {
-    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
+    id: `REV-${review.id}`,
     complaintId,
     status: complaint.status,
-    message: `Admin escalation review: ${actionNote.trim()}`,
-    author: session.fullName,
-    timestamp,
+    message: `Admin escalation review: ${review.note}`,
+    author: review.reviewedBy,
+    timestamp: review.reviewedAt,
   };
-
-  complaint.updatedAt = timestamp;
-  updates.push(update);
-
-  const currentAudit = getAdminAuditEvents();
 
   const auditEvent = createAuditEvent({
     complaintId,
@@ -859,16 +787,14 @@ export function reviewComplaintEscalation(
     },
     previousValue: 'Escalated',
     newValue: 'Reviewed',
-    timestamp,
-    details: actionNote.trim(),
+    timestamp: review.reviewedAt,
+    details: trimmedNote,
   });
 
-  const updatedAudit = [auditEvent, ...currentAudit];
+  const currentAudit = getAdminAuditEvents();
 
   saveStorageBatch([
-    [STORAGE_KEY, complaints],
-    [UPDATES_STORAGE_KEY, updates],
-    [ADMIN_AUDIT_STORAGE_KEY, updatedAudit],
+    [ADMIN_AUDIT_STORAGE_KEY, [auditEvent, ...currentAudit]],
   ]);
 
   return {
@@ -891,18 +817,23 @@ export type SubmitEscalationResult =
 /**
  * Record an escalation for a complaint owned by the current user.
  */
-export function submitComplaintEscalation(
+
+export async function submitComplaintEscalation(
   complaintId: string,
   reason: string,
   session: AuthSession | null,
-): SubmitEscalationResult {
+): Promise<SubmitEscalationResult> {
   if (session?.role !== 'user') {
     return { outcome: 'unauthorized' };
   }
 
-  const complaints = [...readComplaints()].map((item) => ({
-    ...item,
-  }));
+  const trimmedReason = reason.trim();
+
+  if (!trimmedReason) {
+    return { outcome: 'invalid_reason' };
+  }
+
+  const complaints = await listComplaintsRequest();
 
   const complaint = complaints.find(
     (item) => item.id === complaintId,
@@ -924,51 +855,22 @@ export function submitComplaintEscalation(
     return { outcome: 'ineligible' };
   }
 
-  const trimmedReason = reason.trim();
+  await submitEscalationRequest(complaintId, trimmedReason);
 
-  if (!trimmedReason) {
-    return { outcome: 'invalid_reason' };
-  }
+  const refreshed = await getComplaintRequest(complaintId);
 
-  const timestamp = new Date().toISOString();
-  const updates = [...readUpdates()];
+  const existingUpdate = refreshed.updates.find(
+    (item) => item.message.includes(trimmedReason),
+  );
 
-  const update: ComplaintUpdate = {
-    id: `UPD-${String(updates.length + 1).padStart(3, '0')}`,
+  const update: ComplaintUpdate = existingUpdate ?? {
+    id: `ESC-${Date.now()}`,
     complaintId,
-    status: complaint.status,
+    status: refreshed.complaint.status,
     message: `Escalation reason: ${trimmedReason}`,
     author: session.fullName,
-    timestamp,
+    timestamp: new Date().toISOString(),
   };
-
-  complaint.isEscalated = true;
-  complaint.updatedAt = timestamp;
-
-  updates.push(update);
-
-  const notifications = [...readNotifications()];
-  const notificationId = `NOT-${update.id}`;
-
-  if (
-    !notifications.some((item) => item.id === notificationId)
-  ) {
-    notifications.push({
-      id: notificationId,
-      complaintId,
-      type: 'escalation',
-      title: 'Complaint escalated',
-      message: `Your escalation for ${complaintId} was submitted: ${trimmedReason}`,
-      read: false,
-      timestamp,
-    });
-  }
-
-  saveStorageBatch([
-    [STORAGE_KEY, complaints],
-    [UPDATES_STORAGE_KEY, updates],
-    [NOTIFICATIONS_STORAGE_KEY, notifications],
-  ]);
 
   return {
     outcome: 'submitted',

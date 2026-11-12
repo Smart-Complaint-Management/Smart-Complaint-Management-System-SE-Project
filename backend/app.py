@@ -244,12 +244,27 @@ def database_health():
 def complaint_json(row):
     created_at = row["created_at"]
     updated_at = row["updated_at"]
+    duplicate_reviewed_at = row.get("duplicate_reviewed_at")
+
     submitted_at = created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
     changed_at = updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at)
+
     if not submitted_at.endswith("Z") and "+" not in submitted_at:
         submitted_at += "Z"
+
     if not changed_at.endswith("Z") and "+" not in changed_at:
         changed_at += "Z"
+
+    reviewed_at = None
+    if duplicate_reviewed_at:
+        reviewed_at = (
+            duplicate_reviewed_at.isoformat()
+            if hasattr(duplicate_reviewed_at, "isoformat")
+            else str(duplicate_reviewed_at)
+        )
+        if not reviewed_at.endswith("Z") and "+" not in reviewed_at:
+            reviewed_at += "Z"
+
     return {
         "id": row["public_id"],
         "databaseId": row["id"],
@@ -262,8 +277,17 @@ def complaint_json(row):
         "submittedAt": submitted_at,
         "updatedAt": changed_at,
         "isEscalated": bool(row.get("is_escalated", False)),
-    }
 
+        # Duplicate review information
+        "possibleDuplicateId": row.get("possible_duplicate_id"),
+        "duplicateReviewStatus": row.get("duplicate_review_status", "pending"),
+        "duplicateReviewedBy": (
+            str(row["duplicate_reviewed_by"])
+            if row.get("duplicate_reviewed_by") is not None
+            else None
+        ),
+        "duplicateReviewedAt": reviewed_at,
+    }
 
 def iso_timestamp(value):
     timestamp = value.isoformat() if hasattr(value, "isoformat") else str(value)
@@ -438,23 +462,28 @@ def list_complaints():
     user = current_user()
     if user is None:
         return jsonify({"error": "Authentication is required."}), 401
+
     ownership_filter = "" if user.role == "admin" else "WHERE c.user_id = :user_id"
     parameters = {} if user.role == "admin" else {"user_id": user.id}
+
     try:
         rows = db.session.execute(text(
             "SELECT c.id, c.public_id, c.title, c.description, c.status, c.priority, "
             "c.created_at, c.updated_at, u.full_name, cc.name AS category, "
+            "c.possible_duplicate_id, c.duplicate_review_status, "
+            "c.duplicate_reviewed_by, c.duplicate_reviewed_at, "
             "EXISTS(SELECT 1 FROM complaint_escalations e WHERE e.complaint_id = c.id) AS is_escalated "
             "FROM complaints c JOIN users u ON u.id = c.user_id "
             "LEFT JOIN complaint_categories cc ON cc.id = c.category_id "
             f"{ownership_filter} ORDER BY c.created_at DESC, c.id DESC"
         ), parameters).mappings().all()
+
     except Exception:
         db.session.rollback()
         app.logger.exception("Complaint listing failed")
         return jsonify({"error": "Could not retrieve complaints."}), 500
-    return jsonify({"items": [complaint_json(row) for row in rows]}), 200
 
+    return jsonify({"items": [complaint_json(row) for row in rows]}), 200
 
 @app.route("/complaints/<string:public_id>", methods=["GET"])
 def get_complaint(public_id):
@@ -609,47 +638,91 @@ def list_escalations():
     return jsonify({"items": items}), 200
 
 
-@app.route("/complaints/<string:public_id>/escalation-reviews", methods=["POST"])
-def review_escalation(public_id):
+
+@app.route("/complaints/<string:public_id>/duplicate-review", methods=["POST"])
+def review_duplicate(public_id):
     user = current_user()
+
     if user is None:
         return jsonify({"error": "Authentication is required."}), 401
+
     if user.role != "admin":
         return jsonify({"error": "Administrator access is required."}), 403
+
     payload = request.get_json(silent=True)
-    note = payload.get("note") if isinstance(payload, dict) else None
-    if not isinstance(note, str) or not note.strip():
-        return jsonify({"error": "A review note is required.", "field": "note"}), 400
+    decision = payload.get("decision") if isinstance(payload, dict) else None
+
+    if decision not in ("confirmed", "not_duplicate"):
+        return jsonify({"error": "Invalid duplicate review decision."}), 400
+
     try:
         with db.session.begin():
-            escalation = db.session.execute(text(
-                "SELECT e.id FROM complaint_escalations e JOIN complaints c ON c.id = e.complaint_id "
-                "WHERE c.public_id = :public_id"
-            ), {"public_id": public_id}).mappings().first()
-            if escalation is None:
-                return jsonify({"error": "Escalation not found."}), 404
-            result = db.session.execute(text(
-                "INSERT INTO complaint_escalation_reviews (escalation_id, admin_user_id, note) "
-                "VALUES (:escalation_id, :admin_user_id, :note)"
-            ), {"escalation_id": escalation["id"], "admin_user_id": user.id, "note": note.strip()})
-            review_id = result.lastrowid
-            if db.engine.dialect.name == "sqlite":
-                review_id = db.session.execute(text("SELECT last_insert_rowid()")).scalar_one()
-            review = db.session.execute(text(
-                "SELECT r.id, r.note, r.reviewed_at, u.full_name AS reviewed_by "
-                "FROM complaint_escalation_reviews r JOIN users u ON u.id = r.admin_user_id "
-                "WHERE r.id = :id"
-            ), {"id": review_id}).mappings().one()
-            value = {
-                "id": review["id"], "note": review["note"],
-                "reviewedBy": review["reviewed_by"], "reviewedAt": iso_timestamp(review["reviewed_at"]),
-            }
+            complaint = db.session.execute(
+                text("""
+                    SELECT id, public_id, possible_duplicate_id,
+                           duplicate_review_status
+                    FROM complaints
+                    WHERE public_id = :public_id
+                    FOR UPDATE
+                """),
+                {"public_id": public_id},
+            ).mappings().first()
+
+            if complaint is None:
+                return jsonify({"error": "Complaint not found."}), 404
+
+            duplicate_id = complaint["possible_duplicate_id"]
+
+            if not duplicate_id:
+                return jsonify({"error": "No possible duplicate is linked."}), 400
+
+            duplicate = db.session.execute(
+                text("""
+                    SELECT id, public_id, duplicate_review_status
+                    FROM complaints
+                    WHERE public_id = :duplicate_id
+                    FOR UPDATE
+                """),
+                {"duplicate_id": duplicate_id},
+            ).mappings().first()
+
+            if duplicate is None:
+                return jsonify({"error": "Duplicate complaint not found."}), 404
+
+            if (
+                complaint["duplicate_review_status"] == decision
+                and duplicate["duplicate_review_status"] == decision
+            ):
+                return jsonify({"outcome": "unchanged"}), 200
+
+            db.session.execute(
+                text("""
+                    UPDATE complaints
+                    SET duplicate_review_status = :decision,
+                        duplicate_reviewed_by = :admin_id,
+                        duplicate_reviewed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE public_id IN (:complaint_id, :duplicate_id)
+                """),
+                {
+                    "decision": decision,
+                    "admin_id": user.id,
+                    "complaint_id": public_id,
+                    "duplicate_id": duplicate_id,
+                },
+            )
+
     except Exception:
         db.session.rollback()
-        app.logger.exception("Escalation review failed")
-        return jsonify({"error": "Could not record escalation review."}), 500
-    return jsonify({"review": value}), 201
+        app.logger.exception("Duplicate review failed")
+        return jsonify({"error": "Could not record duplicate review."}), 500
 
+    return jsonify({
+        "outcome": "reviewed",
+        "complaintId": public_id,
+        "duplicateId": duplicate_id,
+        "decision": decision,
+    }), 200
 
 @app.route("/complaints/<int:complaint_id>/status", methods=["PATCH"])
 @require_admin
