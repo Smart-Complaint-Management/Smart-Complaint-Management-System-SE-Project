@@ -25,7 +25,11 @@ class AuthenticationAndStatusIntegrationTests(unittest.TestCase):
                 user_id INTEGER NOT NULL, category_id INTEGER NOT NULL, title TEXT NOT NULL,
                 description TEXT NOT NULL, status TEXT NOT NULL, priority TEXT NOT NULL,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"""))
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                possible_duplicate_id TEXT,
+                duplicate_review_status TEXT,
+                duplicate_reviewed_by INTEGER,
+                duplicate_reviewed_at TIMESTAMP)"""))
             db.session.execute(text("""CREATE TABLE complaint_categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
                 description TEXT)"""))
