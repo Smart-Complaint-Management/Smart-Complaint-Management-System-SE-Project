@@ -1,0 +1,38 @@
+﻿SYSTEM TEST REPORT
+Smart Complaint Management System
+
+Execution date: 13 November 2026
+
+1. Purpose
+This report records the available cross-component and application-level verification performed on the local project checkout.
+
+2. Tests and commands
+Frontend automated suite (run from frontend/):
+  npm.cmd test -- --reporter=verbose
+  Result: PASS — 18 test files, 155 tests passed, 0 failed.
+
+Backend API integration suite (run from backend/):
+  python -m pytest -p no:cacheprovider --cov=app --cov=auth --cov-branch --cov-report=term-missing -q
+  Result: PASS — 33 tests and 6 subtests passed, 0 failed.
+
+Frontend TypeScript check (run from frontend/):
+  npm.cmd run typecheck
+  Result: PASS — TypeScript completed with exit code 0.
+
+Frontend production build (run from frontend/):
+  npm.cmd run build
+  Result: PASS — Vite built the production bundle successfully.
+
+3. System behavior exercised
+- Frontend route access for unauthenticated, regular-user, and administrator sessions.
+- Admin escalation review UI-to-service flows.
+- Backend authentication, session invalidation, role/ownership authorization, and CSRF enforcement.
+- Complaint creation, listing, detail/history access, status updates, escalation submission/review, and notifications.
+- Validation and failure cases, including transactional rollback and notification behavior.
+- Frontend service workflows for complaint handling, reporting, classification, duplicate review, and exports.
+
+4. Overall result
+PASS for the executed automated checks: frontend tests, backend API integration tests, TypeScript check, and production build all completed successfully.
+
+5. Limits
+No deployed-environment, live-MySQL, browser automation, or manual acceptance run was performed as part of these commands. Backend API tests use the test setup defined in the repository; results should not be read as production database verification. Frontend route and UI integration tests run under jsdom.
