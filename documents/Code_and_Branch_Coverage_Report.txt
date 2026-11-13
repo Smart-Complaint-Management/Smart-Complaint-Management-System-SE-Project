@@ -1,0 +1,26 @@
+﻿CODE AND BRANCH COVERAGE REPORT
+Smart Complaint Management System
+
+Execution date: 13 November 2026
+
+1. Measurement command
+Run from backend/:
+  python -m pytest -p no:cacheprovider --cov=app --cov=auth --cov-branch --cov-report=term-missing -q
+
+Coverage was collected by pytest-cov / coverage.py 7.16.0 while running the backend API integration tests.
+
+2. Backend results
+Module      Statements covered     Branches covered
+app.py      353 / 473 (74.6%)      109 / 166 (65.7%)
+auth.py      28 / 28 (100%)          6 / 6 (100%)
+TOTAL       381 / 501 (76.0%)      115 / 172 (66.9%)
+
+- Overall combined statement-and-branch coverage: 73.7% (displayed as 74% by coverage.py).
+- Backend tests: 33 passed, 6 subtests passed.
+- Uncovered statements and branch paths are reported by coverage.py; app.py has the majority of uncovered paths.
+
+3. Frontend coverage status
+Frontend code and branch coverage were not measured. The configured Vitest 5.0.5 command `npm.cmd test -- --coverage` could not start because `@vitest/coverage-v8` is not installed. A temporary no-save install attempt failed in npm before the provider could be added. No frontend coverage percentage is claimed here.
+
+4. Scope and interpretation
+These percentages cover only backend `app.py` and `auth.py`; they do not represent the entire repository. Coverage indicates which executable statements and conditional paths the automated backend tests exercised. It does not establish correctness for uncovered or covered code. Frontend tests, typecheck, and production build passed, but they do not substitute for frontend line/branch instrumentation.
