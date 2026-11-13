@@ -1,81 +1,103 @@
+# Smart Complaint Management System (Software Engineering Final Project)
 
-# Smart Complaint Management System (SCMS)
-### Software Engineering Final Project
+A web-based complaint management platform that enables users to register, track and escalate complaints while providing administrators with tools to manage complaint lifecycles, review escalations, monitor potential duplicates and analyse complaint data.
+
+---
 
 ## Team Members
 
-| Name | SRN |
-|------|-----|
-| Shasank S K | PESU2G24CS460 |
+| Name          | SRN           |
+| ------------- | ------------- |
+| Shasank S K   | PESU2G24CS460 |
 | Shreya Shenoy | PES2UG24CS487 |
-| Sanjan M | PES2UG24CS442 |
-| Samartha M S | PES2UG24CS435 |
+| Sanjan M      | PES2UG24CS442 |
+| Samartha M S  | PES2UG24CS435 |
 
 ---
 
 ## 1. Project Overview
 
-The **Smart Complaint Management System (SCMS)** is a web-based application designed to provide a centralized platform for registering, categorizing, tracking, managing, escalating, and resolving complaints.
+The **Smart Complaint Management System (SCMS)** is a web-based application developed to provide a centralized platform for registering, categorizing, tracking, managing, escalating and resolving complaints.
 
-The system enables registered users to submit complaints, monitor their progress, receive relevant updates, and escalate unresolved issues. Administrators can manage complaints, update their statuses, assign them to appropriate departments, review escalations, and access complaint-related reports and analytics.
+The system allows registered users to lodge complaints, select appropriate categories, monitor complaint progress and receive relevant notifications. Users can also escalate complaints when they feel that sufficient attention or appropriate action has not been received.
 
-The system incorporates smart capabilities such as automatic complaint priority classification and duplicate complaint detection to improve complaint management efficiency.
+Administrators have access to complaint management functionality, including reviewing complaints, updating their statuses, managing escalations, reviewing potentially duplicate complaints and accessing administrative information.
 
-SCMS is developed as an academic Software Engineering prototype and is not intended to replace or directly integrate with existing government or municipal complaint management platforms.
+The system incorporates two smart capabilities:
+
+- **Smart Complaint Classification:** Automatically suggests a complaint priority based on predefined rules and keywords.
+- **Duplicate Complaint Detection:** Identifies potentially related complaints and presents them for administrator review.
+
+The project is developed as an academic software engineering prototype. It demonstrates software development practices involving frontend and backend integration, database design, authentication, authorization, automated testing, continuous integration and deployment workflows.
+
+It is not intended to replace or integrate with an existing government or municipal complaint management system.
+
+---
 
 ## 2. Objectives
 
-The primary objectives of SCMS are:
+The main objectives are to:
 
-- Provide a centralized platform for complaint registration and management.
-- Allow users to submit complaints with relevant descriptions and categories.
-- Automatically suggest complaint priority based on complaint information.
-- Identify potentially duplicate complaints for administrative review.
-- Enable users to track complaint status and progress.
-- Allow users to escalate complaints when appropriate action has not been received.
-- Enable administrators to manage complaints and update their statuses.
-- Support complaint assignment to appropriate departments.
-- Implement role-based access control.
-- Provide search and filtering functionality.
-- Provide administrative dashboards, reports, and analytics.
-- Maintain structured complaint records and support efficient complaint handling.
+- Provide a centralized complaint registration platform.
+- Organize complaints using predefined categories.
+- Automatically suggest complaint priorities.
+- Identify potentially duplicate or related complaints.
+- Allow administrators to manage complaint statuses.
+- Support complaint assignment to appropriate personnel or departments.
+- Allow users to track complaint progress.
+- Provide relevant notifications.
+- Support complaint escalation and administrative review.
+- Enforce role-based access control.
+- Maintain complaint history and audit-related information.
+- Provide administrative search, filtering and reporting capabilities.
+- Apply software engineering practices through structured development, testing and CI/CD workflows.
+
+---
 
 ## 3. Technology Stack
 
-| Component | Technology |
-|-----------|------------|
-| Frontend | React, TypeScript |
-| Build Tool | Vite |
-| Styling | Tailwind CSS |
-| UI Icons | Lucide React |
-| Routing | React Router |
-| State Management | React Hooks |
-| Backend | Python, Flask |
-| Database | MySQL |
-| Authentication | Flask authentication endpoints, session-based frontend context |
-| Testing | Vitest, React Testing Library |
-| Version Control | Git, GitHub |
-| Frontend Hosting | Vercel |
-| Backend Hosting Configuration | Gunicorn-compatible Flask application |
-| CI/CD | GitHub Actions |
+The application uses the following technologies:
+
+| Layer                                        | Technology                            |
+| -------------------------------------------- | ------------------------------------- |
+| Frontend framework                           | React                                 |
+| Programming language (Frontend)              | TypeScript                            |
+| Frontend build tool                          | Vite                                  |
+| Styling                                      | Tailwind CSS                          |
+| UI icons                                     | Lucide React                          |
+| Backend language                             | Python                                |
+| Backend framework                            | Flask                                 |
+| Database                                     | MySQL                                 |
+| ORM / Database interaction                   | SQLAlchemy                            |
+| Authentication                               | Session-based authentication          |
+| Password hashing                             | Werkzeug / password hashing utilities |
+| Frontend testing                             | Vitest                                |
+| Component testing                            | React Testing Library                 |
+| Backend testing                              | Python unittest                       |
+| Version control                              | Git and GitHub                        |
+| CI/CD                                        | GitHub Actions                        |
+| Frontend hosting                             | Vercel                                |
+| Backend hosting (deployment experimentation) | Railway                               |
 
 ### Frontend
 
-The frontend is developed using React and TypeScript with Vite as the build tool.
+The frontend is developed using React and TypeScript with Vite.
 
-It provides separate interfaces for users and administrators.
+It provides separate interfaces for users and administrators, including:
 
-Major frontend technologies and libraries include:
+- User registration and login.
+- Complaint registration.
+- Complaint listing and tracking.
+- Individual complaint details.
+- Complaint progress timelines.
+- Escalation requests.
+- Administrator complaint management.
+- Duplicate complaint review.
+- Administrative escalation review.
+- Search and filtering interfaces.
+- Dashboard and reporting interfaces.
 
-- **React:** Component-based user interface development.
-- **TypeScript:** Static typing for improved code reliability.
-- **Vite:** Frontend development server and production build generation.
-- **Tailwind CSS:** Responsive styling and UI design.
-- **React Router:** Client-side navigation and routing.
-- **Lucide React:** Icons and interface elements.
-- **React Hooks:** State management and component lifecycle handling.
-
-The frontend is organized into reusable components, pages, services, authentication context, data models, and validation utilities.
+Tailwind CSS is used for styling, while Lucide React provides interface icons.
 
 ### Backend
 
@@ -83,38 +105,43 @@ The backend is implemented using Python and Flask.
 
 It handles:
 
-- HTTP requests and responses.
-- Authentication endpoints.
-- User-related operations.
-- Complaint-related API endpoints.
-- Complaint status updates.
-- Escalation-related operations.
-- Database connectivity.
-- CORS configuration.
+- Authentication and session management.
+- Authorization and role validation.
+- Complaint-related API requests.
+- Complaint status management.
+- Complaint history.
+- Escalation submission and review.
+- Notification retrieval.
+- Database interaction.
+- Request validation and error handling.
 
-The Flask application is configured to support production execution through Gunicorn.
+SQLAlchemy is used for database operations and transaction management.
 
 ### Database
 
-MySQL is selected as the relational database management system.
+MySQL is the relational database management system used in the project design and backend implementation.
 
-The database design supports structured storage of:
+The database schema includes tables for:
 
-- User information.
-- Complaint information.
+- Users.
+- Authentication sessions.
 - Complaint categories.
-- Complaint priorities.
-- Complaint statuses.
+- Complaints.
 - Complaint assignments.
-- Escalation information.
-- Notification-related information.
-- Complaint history and related records.
+- Complaint history.
+- Complaint escalations.
+- Escalation reviews.
+- Notifications.
 
-Database connectivity is configured through environment variables rather than hardcoded credentials.
+The schema is designed to maintain structured complaint records and support complaint lifecycle operations.
+
+**Deployment note:** Backend API functionality and database schema implementation do not automatically establish that every frontend operation is using persistent production storage. The current frontend retains mock-data functionality for complaint workflows unless real API mode is explicitly enabled and correctly configured.
+
+---
 
 ## 4. User Roles
 
-SCMS currently defines two primary roles.
+The system defines two primary roles.
 
 ### User
 
@@ -123,33 +150,36 @@ Users can:
 - Register and log in.
 - Submit new complaints.
 - Select complaint categories.
-- View their submitted complaints.
+- View submitted complaints.
 - Track complaint status and progress.
-- View complaint details and timelines.
-- Request escalation for eligible complaints.
+- View complaint details and history.
+- Receive relevant notifications.
+- Request complaint escalation.
 - Search and filter complaints they are authorized to access.
 
 ### Administrator
 
 Administrators can:
 
-- Log in to the administrative interface.
+- Log in to the administrator interface.
 - View and manage complaints.
 - Update complaint statuses.
-- Assign complaints to appropriate departments where supported.
+- Review complaint priorities.
+- Override priorities where supported.
+- Review potential duplicate complaints.
+- Confirm or reject duplicate suggestions.
 - Review escalated complaints.
-- View automatically suggested complaint priorities.
-- Override priorities for supported demo complaints.
-- Review potentially duplicate complaints.
+- Record escalation review notes.
 - Search and filter complaints.
-- Access the administrative dashboard.
-- View reports and analytics.
+- Access administrative dashboard and reporting functionality.
 
-Only authorized administrators can access administrative management operations.
+> **Note:** The project defines only two primary system roles: User and Administrator. Department Staff, Super Admin, Department Head and Moderator are not separate roles in the current project scope.
+
+---
 
 ## 5. Functional Requirements
 
-The system covers the following major functional requirements:
+The application covers the following 13 major functional areas:
 
 1. User Registration and Login
 2. Complaint Registration
@@ -160,480 +190,202 @@ The system covers the following major functional requirements:
 7. Smart Complaint Classification
 8. Duplicate Complaint Detection
 9. Complaint Status Updates
-10. Administrator Dashboard
+10. Admin Dashboard
 11. Reports and Analytics
 12. Role-Based Access Control
 13. Search and Filtering
 
-## 6. Smart Features
-
-### 6.1 Smart Complaint Classification
+---
 
-SCMS implements a rule-based priority classification mechanism.
+## 6. Major System Features
 
-The classification considers the complaint subject, description, and category.
+### 6.1 User Registration and Authentication
 
-The system identifies keywords and predefined conditions to suggest one of four priority levels:
+- User registration and login interfaces.
+- Password-based authentication.
+- Password hashing on the backend.
+- Session-based authentication.
+- Protected API access.
+- Authentication checks for restricted operations.
 
-| Priority | Description |
-|----------|-------------|
-| Critical | Immediate safety risks or serious threats |
-| High | Urgent incidents requiring prompt attention |
-| Medium | Issues affecting normal activities |
-| Low | Minor issues, suggestions, and general requests |
+### 6.2 Complaint Registration
 
-Examples of classification conditions include:
+Users can submit complaints by providing:
 
-- Critical: Fire, explosion, immediate danger, severe injury.
-- High: Urgent issues, harassment, security breaches, power outages.
-- Medium: General complaints affecting normal activities.
-- Low: Suggestions, minor improvements, and feedback.
+- Complaint subject.
+- Complaint category.
+- Complaint description.
 
-The suggested priority is displayed dynamically while the user enters complaint information.
+The frontend validates the entered information before submission.
 
-Administrators can review the suggested priority and override it for supported demo complaints.
+The complaint submission flow passes the complaint details to the application service layer, which supports mock-data operation and backend API integration.
 
-**Note:** This is a transparent rule-based heuristic and not a trained machine learning model.
+### 6.3 Complaint Categorization
 
-### 6.2 Duplicate Complaint Detection
+Complaints are organized into predefined categories, including:
 
-The system incorporates duplicate complaint detection to identify complaints that may refer to the same underlying issue.
+- Facilities.
+- IT Infrastructure.
+- Academic.
+- Administrative.
+- Harassment.
+- Other.
 
-Potentially related complaints are identified and presented to administrators for review.
+This classification helps administrators organize and locate complaints efficiently.
 
-Administrators can:
+### 6.4 Smart Complaint Classification (Priority Categorization)
 
-- Confirm a suspected duplicate.
-- Mark a suspected duplicate as not a duplicate.
-- Review the linked complaint.
+The application includes a rule-based priority classification mechanism.
 
-The system does not automatically delete or merge complaints simply because they are identified as potential duplicates.
+The classification function analyses the complaint subject and description using predefined keywords.
 
-Each complaint remains an individual submission.
+Four priority levels are supported:
 
-## 7. Complaint Management Workflow
+| Priority | Description                                   |
+| -------- | --------------------------------------------- |
+| Critical | Immediate safety risks or serious threats     |
+| High     | Urgent issues requiring prompt attention      |
+| Medium   | Issues affecting normal activities            |
+| Low      | Minor issues, suggestions or general requests |
 
-The general complaint management workflow is:
+Examples of keyword-based classification:
 
-```text
-User Registration / Login
-          |
-          v
-  Complaint Registration
-          |
-          v
-   Complaint Categorization
-          |
-          v
- Smart Priority Classification
-          |
-          v
- Duplicate Complaint Detection
-          |
-          v
-  Complaint Management
-          |
-          v
-   Administrative Review
-          |
-          v
-  Complaint Status Updates
-          |
-          v
- User Tracking and Notifications
-          |
-          v
-   Complaint Escalation
-          |
-          v
- Further Administrative Action
-          |
-          v
-       Resolution
-```
+- Critical: Fire, explosion, life-threatening, emergency.
+- High: Urgent, unsafe, harassment, security breach, power outage.
+- Low: Suggestion, minor, cosmetic, feedback.
 
-## 8. Frontend Architecture
+The suggested priority is updated dynamically as the user enters complaint details.
 
-The frontend follows a modular structure to separate application pages, reusable components, authentication, API communication, and business logic.
+This is a transparent rule-based heuristic rather than a trained machine learning model. Administrators can review the suggested priority and use the available priority override functionality where supported.
 
-Important frontend modules include:
+### 6.5 Duplicate Complaint Detection
 
-### Pages
+The system includes functionality for identifying potentially related complaints.
 
-- Authentication pages.
-- User complaint registration page.
-- Complaint listing page.
-- Complaint details page.
-- Administrator complaint management pages.
-- Administrative dashboard pages.
+- Potential duplicate relationships can be associated with complaints.
+- The interface displays a possible duplicate warning.
+- Related complaint records can be accessed for review.
+- Administrators can confirm a suspected duplicate or mark it as not a duplicate.
+- Duplicate review status and reviewer information can be displayed.
 
-### Components
+The system does not automatically merge or delete complaints solely because they are identified as possible duplicates.
 
-Reusable interface components include:
+Each complaint remains an individual submission unless explicitly handled otherwise by an authorized administrator.
 
-- PageHeader
-- StatusBadge
-- PriorityBadge
-- ComplaintTimeline
-- EmptyState
+### 6.6 Complaint Tracking and Status Management
 
-These components help maintain a consistent interface across different application pages.
+Users can view the current status of their complaints.
 
-### Services
+The supported statuses are:
 
-The service layer separates API communication and complaint-related business logic from the UI.
+- Submitted.
+- Under Review.
+- In Progress.
+- Resolved.
+- Rejected.
 
-Important service modules include:
+Administrators can update complaint statuses through the management interface.
 
-- `api.ts` – API configuration, complaint service integration, and data mode selection.
-- `authApi.ts` – Authentication and complaint-related API requests.
-- `complaintService.ts` – Complaint management operations, status handling, priority management, and duplicate review.
-- `dataMigrationService.ts` – Data migration-related functionality.
-- `validateComplaint.ts` – Complaint form validation.
+The application also supports displaying complaint progress through a timeline containing status updates and relevant timestamps.
 
-### Authentication Context
+### 6.7 Complaint Escalation
 
-The authentication context manages the current user session and makes authentication information available across application components.
+Users can request escalation when they are dissatisfied with the progress of a complaint.
 
-It supports role-based interface rendering and access-related checks.
+The escalation workflow includes:
 
-## 9. Backend API and Configuration
+1. User opens an eligible complaint.
+2. User selects the escalation option.
+3. User enters a reason for escalation.
+4. The application validates the request.
+5. The escalation request is submitted.
+6. The administrator can review the escalated complaint.
 
-The Flask backend provides the application server and database connectivity.
+The application includes checks for:
 
-The application includes endpoints for:
+- Empty escalation reasons.
+- Unauthorized requests.
+- Missing complaints.
+- Repeated escalation requests.
+- Complaints that are no longer eligible for escalation.
 
-- User authentication.
-- Current user/session verification.
-- Complaint creation.
-- Complaint listing and retrieval.
-- Complaint status updates.
-- Escalation submission and review.
-- Notification retrieval.
-- Database health checking.
+### 6.8 Administrator Escalation Review
 
-The frontend uses a configurable API base URL.
+Administrators can review escalated complaints and record review notes.
 
-The application also supports CORS configuration to allow communication between the deployed frontend and backend origins.
+The backend escalation-review functionality includes:
 
-### Environment Variables
+- Authentication verification.
+- Administrator role verification.
+- Review-note validation.
+- Escalation existence checks.
+- Database transaction handling.
+- Recording the administrator review.
+- Returning the updated escalation information.
 
-#### Frontend
+### 6.9 Complaint Assignment
 
-The frontend uses:
+The system includes an administrative assignment interface intended to associate complaints with appropriate departments or personnel.
 
-| Variable | Purpose |
-|----------|---------|
-| `VITE_API_BASE_URL` | Backend API origin |
-| `VITE_USE_REAL_API` | Controls real API mode where configured |
+Example department options include:
 
-Example local configuration:
+- IT Support Desk.
+- Facilities Maintenance.
+- Registrar Office.
+- Finance Office.
 
-```env
-VITE_API_BASE_URL=http://localhost:5000
-```
+**Implementation limitation:** The assignment interface is present, but complete persistent assignment functionality is not yet implemented. The current frontend department-based assignment interface and the database's user-ID-based assignment schema require a consistent backend API contract.
 
-Vite environment variables are embedded into the client-side production build. Sensitive credentials must never be stored in `VITE_*` variables.
+### 6.10 Notifications and Complaint History
 
-#### Backend
+The system includes notification-related functionality for complaint events.
 
-The Flask backend reads the following environment variables:
+The database design supports notification records for events such as:
 
-| Variable | Purpose |
-|----------|---------|
-| `DB_HOST` | MySQL hostname |
-| `DB_PORT` | MySQL port |
-| `DB_NAME` | Database name |
-| `DB_USER` | Database username |
-| `DB_PASSWORD` | Database password |
-| `CORS_ALLOWED_ORIGINS` | Permitted frontend origins |
-| `PORT` | Backend application port |
+- Status updates.
+- Escalations.
+- Resolutions.
 
-Actual credentials must be configured through the hosting provider's environment settings.
+Complaint history is designed to record:
 
-## 10. Data Management and Current Integration Status
+- Previous status.
+- New status.
+- User responsible for the change.
+- Timestamp of the update.
 
-SCMS contains both frontend demo workflows and backend API/database integration code.
-
-The frontend supports mock/demo complaint workflows through its service layer. These workflows allow the application interface and complaint management features to be demonstrated without requiring every feature to be connected to a live database.
-
-The application also contains real API integration paths for authentication and supported complaint operations.
-
-The following limitations apply to the current academic prototype:
-
-- `USE_REAL_API` is disabled in the current frontend complaint service configuration.
-- Complaint submission through the mock mode uses browser-side demo storage.
-- Demo complaint status and priority changes are stored in browser storage.
-- Duplicate review and certain administrative operations are supported only for demo complaints.
-- Complaint assignment persistence is not fully implemented.
-- A managed production MySQL service and complete end-to-end production integration have not been verified.
-
-Therefore, a successful demo complaint submission must not be interpreted as confirmation that the complaint has been inserted into the production MySQL database.
-
-## 11. Testing
-
-Testing is performed to verify the reliability and expected behaviour of the application's individual modules.
-
-### Testing Technologies
-
-- Vitest
-- React Testing Library
-- JavaScript/TypeScript test environment
-- jsdom
-
-### Testing Areas
-
-The project includes tests covering:
-
-- Authentication and access control.
-- Complaint registration and validation.
-- Complaint categorization.
-- Complaint priority classification.
-- Complaint status management.
-- Duplicate complaint review.
-- Complaint data migration.
-- Administrative functionality.
-- User interface behaviour.
-- Service-layer operations.
-
-### Test Execution
-
-From the frontend directory:
-
-```bash
-npm install
-npm test
-```
-
-To run tests in watch mode:
-
-```bash
-npm run test:watch
-```
-
-To generate a test coverage report, if the coverage script and provider are configured:
-
-```bash
-npm run test:coverage
-```
-
-Testing is an ongoing process, and the results depend on the current implementation and test configuration.
-
-## 12. Version Control and CI/CD
-
-Git and GitHub are used for source code management and collaborative development.
-
-The project uses GitHub Actions for continuous integration and frontend deployment automation.
-
-### Continuous Integration (CI)
-
-The CI workflow validates the project before deployment.
-
-It is responsible for running the configured checks and ensuring that the frontend build is successful.
-
-### Continuous Deployment (CD)
-
-The CD workflow is configured to deploy the frontend to Vercel after the existing CI workflow succeeds for a push to the `main` branch.
-
-Manual deployment runs are restricted to `main` and verify that the corresponding commit has a successful CI run.
-
-The deployment workflow uses GitHub repository secrets for Vercel authentication.
-
-Required secrets:
-
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
-
-Deployment credentials are not stored directly in the repository.
-
-## 13. Deployment Architecture
-
-The current deployment architecture is designed around a separately hosted frontend and backend.
-
-| Layer | Platform / Technology |
-|-------|------------------------|
-| Frontend Hosting | Vercel |
-| Frontend Build | Vite |
-| Backend Framework | Python Flask |
-| Production Server Configuration | Gunicorn |
-| Database | MySQL |
-| Source Code Management | GitHub |
-| Automated Deployment | GitHub Actions |
-
-### Frontend Deployment
-
-The frontend is configured for Vercel hosting.
-
-The production build generates static files in:
-
-```text
-frontend/dist
-```
-
-The frontend includes SPA route fallback configuration through:
-
-```text
-frontend/vercel.json
-```
-
-### Backend Deployment
-
-The Flask backend is configured for production execution using Gunicorn.
-
-Example production command:
-
-```bash
-gunicorn app:app --bind 0.0.0.0:$PORT
-```
-
-A separate backend hosting service and managed MySQL instance must be provisioned and configured before claiming a fully operational production deployment.
-
-### Current Deployment Link
-
-**SCMS Frontend:**
-
-https://smart-complaint-management-system-s.vercel.app/
-
-The repository also contains deployment configuration for the frontend's Vercel deployment through GitHub Actions.
-
-## 14. Local Installation and Setup
-
-### Prerequisites
-
-Install the following:
-
-- Node.js
-- npm
-- Python 3
-- pip
-- MySQL Server
-- Git
-
-### Step 1: Clone the Repository
-
-```bash
-git clone https://github.com/SSK1703/Smart-Complaint-Management-System.git
-```
-
-```bash
-cd Smart-Complaint-Management-System
-```
-
-### Step 2: Configure the Frontend
-
-```bash
-cd frontend
-npm install
-```
-
-Create a `.env.local` file using the provided example:
-
-```bash
-cp .env.example .env.local
-```
-
-Configure the backend URL if necessary:
-
-```env
-VITE_API_BASE_URL=http://localhost:5000
-```
-
-Start the frontend development server:
-
-```bash
-npm run dev
-```
-
-### Step 3: Configure the Backend
-
-Open a separate terminal:
-
-```bash
-cd backend
-```
-
-Create a Python virtual environment:
-
-```bash
-python -m venv venv
-```
-
-Activate it on Windows:
-
-```bash
-venv\Scripts\activate
-```
-
-Install the required dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Install production dependencies when required:
-
-```bash
-pip install -r production-requirements.txt
-```
-
-Create a `.env` file using the provided backend environment example and configure the required database credentials.
-
-### Step 4: Start the Backend
-
-```bash
-python app.py
-```
-
-The backend defaults to:
-
-```text
-http://localhost:5000
-```
-
-### Step 5: Database Configuration
-
-Ensure that MySQL is running and that the required database and schema have been created.
-
-Configure the following environment variables:
-
-```env
-DB_HOST=localhost
-DB_PORT=3306
-DB_NAME=smart_complaint_db
-DB_USER=group8
-DB_PASSWORD=your_password
-```
-
-Do not commit actual database credentials to GitHub.
-
-## 15. Future Enhancements
-
-Potential future improvements include:
-
-- Complete production deployment of the Flask backend.
-- Integration with a managed MySQL database.
-- Full end-to-end complaint persistence.
-- Persistent complaint assignment to departments and personnel.
-- Complete notification delivery and tracking.
-- Improved duplicate detection using text similarity and NLP.
-- Machine learning-based complaint classification.
-- Advanced complaint analytics and reporting.
-- Improved administrative audit logging.
-- Automated integration and end-to-end testing.
-- Enhanced security and deployment monitoring.
-
-## 16. Conclusion
-
-The Smart Complaint Management System demonstrates the application of Software Engineering principles in developing a centralized complaint management platform.
-
-The project incorporates modular frontend development, backend API architecture, relational database integration, authentication, role-based access control, complaint lifecycle management, priority classification, duplicate detection, automated testing, version control, and deployment automation.
-
-The academic prototype provides a foundation for further development into a fully integrated and production-ready complaint management system.
+This helps maintain traceability throughout the complaint lifecycle.
 
 ---
 
-**Project:** Smart Complaint Management System (SCMS)  
-**Course:** Software Engineering  
-**Repository:** GitHub  
-**Frontend Deployment:** Vercel
+## 7. System Architecture
+
+The application follows a frontend-backend architecture.
+
+```text
+                  USER / ADMIN
+                       |
+                       v
+                WEB APPLICATION
+                       |
+                       v
+             REACT + TYPESCRIPT
+                       |
+                       v
+                API SERVICE LAYER
+                       |
+                       v
+                 FLASK BACKEND
+                       |
+          +------------+------------+
+          |            |            |
+          v            v            v
+     Authentication  Complaint   Escalation
+      & RBAC          Management   Management
+          |            |            |
+          +------------+------------+
+                       |
+                       v
+                 SQLALCHEMY
+                       |
+                       v
+                    MYSQL
