@@ -1,0 +1,29 @@
+﻿UNIT TEST REPORT
+Smart Complaint Management System
+
+Execution date: 13 November 2026
+
+1. Purpose
+This report records the automated frontend unit-test run available in the repository.
+
+2. Test command
+From the frontend directory:
+  npm.cmd test -- --reporter=verbose
+
+3. Test environment
+- Vitest 5.0.5
+- jsdom environment
+- Windows, Node.js/npm as configured in the local project environment
+
+4. Results
+- Test files passed: 18 of 18
+- Tests passed: 155
+- Tests failed: 0
+- Result: PASS
+- Vitest reported total duration of approximately 58.70 seconds.
+
+5. Scope
+The suite covers frontend utilities and services (including complaint validation, complaint workflows, authentication API handling, reporting, audit, assignments, CSV export, duplicate detection/review, priority classification, migrations, search/filtering, and cross-screen consistency), plus admin routing and escalation UI integration cases.
+
+6. Notes
+Expected error logging appears in tests that simulate storage failures; these cases passed. Backend API integration results are documented separately in the System Test Report. This report reflects the current local checkout and does not claim unexecuted manual or browser end-to-end tests.
