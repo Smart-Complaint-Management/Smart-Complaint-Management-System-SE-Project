@@ -1,4 +1,4 @@
-# COMPLETE SAMARTH WORK AUDIT — SMART COMPLAINT MANAGEMENT SYSTEM
+so # COMPLETE SAMARTH WORK AUDIT — SMART COMPLAINT MANAGEMENT SYSTEM
 
 **Repository:** `Smart-Complaint-Management/Smart-Complaint-Management-System-SE-Project`  
 **GitHub Account:** `samarthkashyap-a` (Samartha M S / SRN: `PES2UG24CS435`)  
